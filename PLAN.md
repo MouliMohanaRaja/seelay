@@ -13,8 +13,10 @@ shells on top; the first-shell decision (bot vs. native app) is deliberately def
 to gate 2.4 below. Budget constraint: student/indie — free tiers and open source
 first, paid AI demoted to fallback and measured. Read [PRD.md](PRD.md) for scope
 and the trust contract, [ARCHITECTURE.md](ARCHITECTURE.md) for contracts and stack,
-[ASSUMPTIONS.md](ASSUMPTIONS.md) for what dogfooding must attack. **Status: no code
-yet — next action is step 1.1.** Update this block as stages complete.
+[ASSUMPTIONS.md](ASSUMPTIONS.md) for what dogfooding must attack. **Status: step 1.1
+in progress — Next.js scaffold committed, builds and renders locally; remaining: Vercel
+deploy + Supabase project (need founder's accounts), then verify the public URL from a
+phone.** Update this block as stages complete.
 
 ## Decision log
 
