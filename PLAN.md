@@ -13,10 +13,11 @@ shells on top; the first-shell decision (bot vs. native app) is deliberately def
 to gate 2.4 below. Budget constraint: student/indie — free tiers and open source
 first, paid AI demoted to fallback and measured. Read [PRD.md](PRD.md) for scope
 and the trust contract, [ARCHITECTURE.md](ARCHITECTURE.md) for contracts and stack,
-[ASSUMPTIONS.md](ASSUMPTIONS.md) for what dogfooding must attack. **Status: step 1.1
-in progress — Next.js scaffold committed, builds and renders locally; remaining: Vercel
-deploy + Supabase project (need founder's accounts), then verify the public URL from a
-phone.** Update this block as stages complete.
+[ASSUMPTIONS.md](ASSUMPTIONS.md) for what dogfooding must attack. **Status: step 1.2
+done (capture API live locally, schema migrated, Law 1 enforced in Postgres). Step 1.1
+partially open: Supabase ✅, Vercel deploy + phone verify still pending. Next: finish
+the 1.1 deploy, then step 1.3 (text/URL resolution waterfall).** Update this block as
+stages complete.
 
 ## Decision log
 
@@ -49,6 +50,12 @@ deployed page; *Dark (2017)* appears in the list with poster and "from Priya."
   Where: `app/api/captures/route.ts`, DB schema per ARCHITECTURE.md.
   Verify: `curl` a text payload → row appears in `captures`; response time logged.
   Fence: no resolution logic in this step; images not yet accepted.
+  **Verified 2026-07-18:** text + URL captures return 201 with `raw` items created;
+  warm latency 186–457 ms (item insert deferred via `after()` per Law 2; direct
+  Supabase RTT ≈ 375 ms is the floor). Image payloads correctly fenced to 400.
+  Immutability trigger blocks UPDATE/DELETE on `captures` even for the service role.
+  Note: schema needed migration 0002 (missing service_role grants on
+  SQL-editor-created tables).
 
 - **1.3 Text/URL resolution pipeline (waterfall T0–T2 + T4).**
   Goal: async pipeline resolves text and URL captures into tiered `items` (Law 3) —

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 
 // PLAN.md 1.2 — capture API. Law 1: store the raw capture before anything
@@ -79,22 +79,21 @@ export async function POST(req: Request) {
   }
 
   // A raw item makes the catch visible on the receipt (1.4) before any
-  // resolution exists. If this insert fails, the capture is still safe —
-  // report success with a flag rather than losing the user's gesture.
-  const { data: item, error: itemError } = await db
-    .from("items")
-    .insert({ capture_id: capture.id, state: "raw", who: whoHint })
-    .select("id")
-    .single();
+  // resolution exists. It is interpretation, not evidence — Law 2 lets it
+  // happen after the response so the capture gesture never waits on it.
+  after(async () => {
+    const { error: itemError } = await db
+      .from("items")
+      .insert({ capture_id: capture.id, state: "raw", who: whoHint });
+    if (itemError) {
+      console.error(
+        `raw item creation failed for capture ${capture.id}: ${itemError.message}`
+      );
+    }
+  });
 
   return NextResponse.json(
-    {
-      capture_id: capture.id,
-      item_id: item?.id ?? null,
-      state: "raw",
-      item_error: itemError ? true : undefined,
-      ms: Date.now() - started,
-    },
+    { capture_id: capture.id, state: "raw", ms: Date.now() - started },
     { status: 201 }
   );
 }
