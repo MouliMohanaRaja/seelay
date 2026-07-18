@@ -13,14 +13,14 @@ shells on top; the first-shell decision (bot vs. native app) is deliberately def
 to gate 2.4 below. Budget constraint: student/indie — free tiers and open source
 first, paid AI demoted to fallback and measured. Read [PRD.md](PRD.md) for scope
 and the trust contract, [ARCHITECTURE.md](ARCHITECTURE.md) for contracts and stack,
-[ASSUMPTIONS.md](ASSUMPTIONS.md) for what dogfooding must attack. **Status: step 1.4
-done + refined — receipt page live with a backend-driven resolution state machine
-(raw → resolving → retrying → resolved/needs_confirm/needs_hint; failed runs land in
-needs_hint with metadata.resolution_failed). The UI reflects backend truth, not a
-client-side timeout. Vendored design skills removed from the repo. Steps 1.2–1.4
-verified locally. Step 1.1 remains partially open: Vercel deploy + phone verify. Next:
-1.5 — quick-add on the receipt (the zero-artifact path), then the Stage-1 boundary
-ritual.** Update this block as stages complete.
+[ASSUMPTIONS.md](ASSUMPTIONS.md) for what dogfooding must attack. **Status: STAGE 1
+COMPLETE — walking skeleton done end-to-end: capture API, deterministic waterfall
+(T0–T2, 100% LLM-free), receipt with the full backend-driven state machine, and
+quick-add all built and verified locally. Stage-1 boundary review recorded in
+ASSUMPTIONS.md (engine assumptions supported; all behavioral assumptions still
+untested by construction — need real dogfooding). Only open Stage-1 item: the 1.1
+Vercel deploy + phone verify (founder step). Next: Stage 2, step 2.1 — image
+ingestion (screenshots).** Update this block as stages complete.
 
 ## Decision log
 
@@ -116,6 +116,12 @@ deployed page; *Dark (2017)* appears in the list with poster and "from Priya."
   Where: `app/page.tsx`.
   Verify: the Stage-1 visible endpoint, exactly as written above.
   Fence: no voice feature (OS dictation covers it); no autocomplete.
+  **Verified 2026-07-18 (mobile 375px + desktop):** typed "dark netflix - from priya"
+  into the quick-add box → 201 → background-resolved to Dark (2017) Series, who=priya,
+  Matched 80%, at the top of the list with poster. Input clears on success; count
+  16→17; no console errors. The whole string goes as one text payload — T2 parses the
+  who-hint (hyphen/en-dash/em-dash all accepted). Fence honoured: `autoComplete="off"`,
+  no voice UI (OS dictation covers it). Input font-size 16px to prevent iOS zoom.
 
 **Stage boundary ritual:** re-read ASSUMPTIONS.md; note anything already creaking
 (A10 gets its first real data here from step 1.3's score).

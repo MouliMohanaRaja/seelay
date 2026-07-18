@@ -79,6 +79,29 @@ honestly (the fallback still costs pennies at this scale) or invest in better fr
 
 ---
 
+## Stage boundary reviews
+
+**Stage 1 → 2 (2026-07-18).** Walking skeleton complete: capture API, waterfall
+resolution, receipt with the full state machine, and quick-add all live and verified.
+Status of the register:
+
+- **Engine assumptions have early support:** A10 and A11 both SUPPORTED on the v1 test
+  set, and Stage 1 added real end-to-end evidence (a typed capture flows capture →
+  resolve → provenance-carrying receipt row). Still only founder-authored, test-shaped
+  inputs — no organic volume, no images yet.
+- **Every behavioral assumption is still UNTESTED, by construction.** A2 (capture is
+  the bottleneck), A4 (where recs arrive), A6 (provenance changes behavior), A7
+  (unification without resurfacing is enough) cannot move until the founder actually
+  lives on the product — Stage 4. Stage 1 built the surfaces they'll be judged on and
+  produced zero behavioral evidence. This is the honest creak: the product *works*;
+  whether anyone's behavior changes is entirely unmeasured.
+- **A3 (magic is in the engine) is now observable.** The resolution+provenance moment
+  renders in a deliberately humble web shell. Whether it *feels* magical there is the
+  founder's call to form now, ahead of the Stage-2 shell gate — a subjective read, not
+  yet evidence.
+- Nothing CHALLENGED or DEAD. A8 (n=1) unchanged; mitigation still scheduled for
+  Stage 5.
+
 ## Deliberately deferred
 
 - **The personal audit** (AUDIT.md) — methodology written and pre-registered; execution

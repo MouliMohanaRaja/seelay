@@ -76,6 +76,8 @@ export default function Receipt() {
   const [loadError, setLoadError] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [hintOpenId, setHintOpenId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState(false);
   const pollCount = useRef(0);
 
   const load = useCallback(async () => {
@@ -140,6 +142,37 @@ export default function Receipt() {
     }
   }
 
+  // The zero-artifact capture path (PLAN.md 1.5): type a recommendation, it
+  // is stored instantly and resolves in the background. The whole text goes
+  // as one payload — the T2 extractor parses "— from priya" itself, so no
+  // separate who field is needed. Returns success so the form can clear.
+  async function addCapture(text: string): Promise<boolean> {
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    setAdding(true);
+    setAddError(false);
+    try {
+      const res = await fetch("/api/captures", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          payload_type: "text",
+          payload: trimmed,
+          source: "manual",
+        }),
+      });
+      if (!res.ok) throw new Error();
+      pollCount.current = 0; // resume polling so the new raw item resolves
+      await load();
+      return true;
+    } catch {
+      setAddError(true);
+      return false;
+    } finally {
+      setAdding(false);
+    }
+  }
+
   return (
     <main className={styles.page}>
       <header className={styles.header}>
@@ -151,6 +184,8 @@ export default function Receipt() {
         )}
       </header>
 
+      <QuickAdd adding={adding} error={addError} onAdd={addCapture} />
+
       {loadError && (
         <p className={styles.notice}>
           Couldn&apos;t load your captures. Check the connection and reload.
@@ -159,8 +194,8 @@ export default function Receipt() {
 
       {items && items.length === 0 && !loadError && (
         <p className={styles.notice}>
-          Nothing caught yet. Captures appear here the moment they&apos;re
-          made — resolved, with who recommended them.
+          Nothing caught yet. Type a recommendation above — even something
+          half-remembered — and it&apos;ll resolve here, with who it&apos;s from.
         </p>
       )}
 
@@ -178,6 +213,53 @@ export default function Receipt() {
         ))}
       </ul>
     </main>
+  );
+}
+
+function QuickAdd({
+  adding,
+  error,
+  onAdd,
+}: {
+  adding: boolean;
+  error: boolean;
+  onAdd: (text: string) => Promise<boolean>;
+}) {
+  const [text, setText] = useState("");
+  return (
+    <form
+      className={styles.quickAdd}
+      onSubmit={async (e) => {
+        e.preventDefault();
+        const ok = await onAdd(text);
+        if (ok) setText("");
+      }}
+    >
+      <div className={styles.quickAddRow}>
+        <input
+          className={styles.quickAddInput}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Add a recommendation — e.g. dark netflix — from priya"
+          aria-label="Add a recommendation"
+          autoComplete="off"
+          enterKeyHint="done"
+          disabled={adding}
+        />
+        <button
+          type="submit"
+          className={styles.confirmBtn}
+          disabled={adding || !text.trim()}
+        >
+          {adding ? "Adding…" : "Add"}
+        </button>
+      </div>
+      {error && (
+        <p className={styles.quickAddError}>
+          Couldn&apos;t save that — check the connection and try again.
+        </p>
+      )}
+    </form>
   );
 }
 
