@@ -67,6 +67,80 @@ backend progress instead of inferring it from elapsed time. A run that exhausts 
 retries lands explicitly in `needs_hint` — never left stuck. `POST /api/items/:id/confirm`
 and `POST /api/items/:id/hint` complete the loop.
 
+## Resolution state machine
+
+The state of an item is backend truth: every transition is a database write by a named
+server component, and the receipt only ever renders the state it reads. This section
+documents the machine exactly as implemented — no planned or aspirational states.
+
+```mermaid
+stateDiagram-v2
+    [*] --> raw
+    raw --> resolving : capture route starts pipeline
+    resolving --> retrying : transient upstream error
+    retrying --> retrying : further attempts (up to 5)
+    resolving --> resolved : score >= 0.75
+    resolving --> needs_confirm : score 0.45 to 0.75
+    resolving --> needs_hint : low score or no match
+    retrying --> resolved : retry succeeds, high score
+    retrying --> needs_confirm : retry succeeds, mid score
+    retrying --> needs_hint : retries exhausted (resolution_failed)
+    needs_confirm --> confirmed : user confirms
+    needs_confirm --> resolving : user adds a hint
+    needs_hint --> resolving : user adds a hint
+```
+
+`resolved` and `confirmed` are terminal — no code transitions out of them (the immutable
+capture underneath is never touched regardless).
+
+### What each state means
+
+- **`raw`** — the capture is stored; the item row exists but resolution has not started.
+  The receipt shows "Caught. Starting to identify…".
+- **`resolving`** — the extraction waterfall + resolver are actively running.
+- **`retrying`** — a transient upstream failure (typically a TMDB `ECONNRESET`/`4xx`) is
+  being retried with backoff, up to 5 attempts.
+- **`resolved`** — auto-matched at high confidence (score ≥ 0.75); the matched entity is
+  attached and the original capture stays linked.
+- **`needs_confirm`** — a top candidate exists but confidence is middling (0.45–0.75) or
+  a close runner-up made it ambiguous; awaits one tap (Law 3: never silently guess).
+- **`needs_hint`** — no confident candidate (score < 0.45 or no match), OR the run
+  exhausted its retries. The latter carries `metadata.resolution_failed = true`, which
+  the UI surfaces as distinct copy ("couldn't reach the identification service").
+- **`confirmed`** — the user has verified a candidate.
+
+### Which component owns each transition
+
+| Transition | Owner | Trigger |
+| --- | --- | --- |
+| `[*] → raw` | capture route (`app/api/captures`) | item row inserted after the capture is stored |
+| `raw → resolving` | capture route, or hint route (`app/api/items/[id]/hint`) | `markItemState` before invoking the pipeline |
+| `resolving → retrying`, `retrying → retrying` | resolver (`lib/resolve/resolver.ts`) | `onRetry` callback fired before each backoff attempt |
+| `resolving`/`retrying` → `resolved` \| `needs_confirm` \| `needs_hint` | scorer (`lib/resolve/score.ts`) decides; `applyResolutionToItem` (`lib/items.ts`) writes | pipeline run completes; state chosen by score thresholds |
+| `resolving`/`retrying` → `needs_hint` (`resolution_failed`) | capture/hint route catch → `markResolutionFailed` | pipeline throws (retries exhausted / missing key) |
+| `needs_confirm → confirmed` | confirm route (`app/api/items/[id]/confirm`) | user taps confirm (guarded `.eq("state","needs_confirm")`) |
+| `needs_confirm → resolving`, `needs_hint → resolving` | hint route | user submits a one-word hint; item re-enters the pipeline |
+
+The pipeline (`lib/resolve/pipeline.ts`) orchestrates extraction and forwards `onRetry`;
+it computes the outcome but does not itself write item state — the routes do, so the
+persisted state and the HTTP response never disagree.
+
+### Invariants
+
+1. **The frontend renders backend truth.** The receipt derives every state label from
+   the `state` column; it holds no timers and makes no elapsed-time guesses. Polling
+   continues only while an item is `raw`/`resolving`/`retrying`.
+2. **The original capture is never lost (Law 1).** `captures` rows are immutable at the
+   database level (trigger blocks UPDATE/DELETE); item state is interpretation layered
+   on top and never overwrites the evidence.
+3. **Unknown states are rejected by the database.** `items.state` carries a CHECK
+   constraint listing exactly these seven values; any other value fails with a 23514
+   violation, so a typo or drift can't persist a phantom state.
+4. **No item is ever stuck.** A resolution run that fails terminates in `needs_hint`
+   (with `resolution_failed`), never left in `resolving`/`retrying`.
+5. **Never silently guess (Law 3).** Middling or ambiguous confidence resolves to
+   `needs_confirm`, not `resolved`; low confidence resolves to `needs_hint`.
+
 ## Data model
 
 Two tables, deliberately separated — the raw capture is immutable evidence, the item is
