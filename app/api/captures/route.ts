@@ -1,6 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { resolveCapture } from "@/lib/resolve/pipeline";
+import { applyResolutionToItem } from "@/lib/items";
 
 // PLAN.md 1.2 — capture API. Law 1: store the raw capture before anything
 // else. Law 2: capture never blocks — no resolution here, ever (fence).
@@ -98,24 +99,15 @@ export async function POST(req: Request) {
     }
     try {
       const result = await resolveCapture(payloadType, payload.trim(), whoHint);
-      const { error: updateError } = await db
-        .from("items")
-        .update({
-          state: result.state,
-          tmdb_id: result.match?.tmdbId ?? null,
-          title: result.match?.title ?? null,
-          year: result.match?.year ?? null,
-          media_type: result.match?.mediaType ?? null,
-          poster_ref: result.match?.posterRef ?? null,
-          confidence: result.score,
-          who: result.whoHint ?? whoHint,
-          resolved_at: new Date().toISOString(),
-          metadata: { tier: result.tierUsed, llm_used: result.llmUsed },
-        })
-        .eq("id", item.id);
+      const updateError = await applyResolutionToItem(
+        db,
+        item.id,
+        result,
+        whoHint
+      );
       if (updateError) {
         console.error(
-          `item update failed for capture ${capture.id}: ${updateError.message}`
+          `item update failed for capture ${capture.id}: ${updateError}`
         );
       }
     } catch (e) {

@@ -13,11 +13,11 @@ shells on top; the first-shell decision (bot vs. native app) is deliberately def
 to gate 2.4 below. Budget constraint: student/indie — free tiers and open source
 first, paid AI demoted to fallback and measured. Read [PRD.md](PRD.md) for scope
 and the trust contract, [ARCHITECTURE.md](ARCHITECTURE.md) for contracts and stack,
-[ASSUMPTIONS.md](ASSUMPTIONS.md) for what dogfooding must attack. **Status: step 1.3
-done — waterfall T0–T2 built test-first, 15/15 on the test set, 100% LLM-free, wired
-into the capture API (async, states land in `items`). T4 deliberately not built yet.
-Step 1.1 remains partially open: Vercel deploy + phone verify (user reports env vars
-added in Vercel; deploy unconfirmed). Next: 1.4 — the receipt page.** Update this
+[ASSUMPTIONS.md](ASSUMPTIONS.md) for what dogfooding must attack. **Status: step 1.4
+done — receipt page live: state-aware rows, one-tap confirm, one-word hint loop,
+provenance + original capture on every row. Steps 1.2–1.4 verified locally. Step 1.1
+remains partially open: Vercel deploy + phone verify. Next: 1.5 — quick-add on the
+receipt (the zero-artifact path), then the Stage-1 boundary ritual.** Update this
 block as stages complete.
 
 ## Decision log
@@ -89,6 +89,14 @@ deployed page; *Dark (2017)* appears in the list with poster and "from Priya."
   states; confirm and hint flows complete from a phone.
   Fence: reverse-chronological only — no filters, no search, no availability, no design
   polish beyond legibility.
+  **Verified 2026-07-18 (mobile viewport 375px, light + dark, desktop sanity):** all
+  states rendered correctly — resolved (Dark 98%, Kantara 80% with "Matched · N%"),
+  needs_confirm (Inception + "Is this the one?"), stalled raw (honest fallback: raw
+  > 90s stops saying "Identifying…" and offers the hint field). Confirm flow: UI tap
+  → `confirmed` in DB. Hint flow: "that german time travel show" + hint "dark" →
+  resolved Dark (2017) via the hint-alone fallback. Original capture text visible on
+  every row (Law 1); provenance line under every title. Verify-from-real-phone
+  remains a founder step (network URL); viewport-level verification done.
 
 - **1.5 Quick-add on the receipt (zero-artifact path).**
   Goal: a text box at the top of the receipt: type → captured → resolves in background.

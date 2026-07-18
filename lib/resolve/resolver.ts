@@ -41,8 +41,8 @@ async function tmdbGet(
   // Indian ISPs) — retry with a short backoff before giving up. On final
   // failure the item stays raw: captured, visible, resolvable later (Law 1).
   let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 250 * attempt));
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 300 * attempt));
     try {
       const res = await fetch(url, {
         headers: a.headers,
