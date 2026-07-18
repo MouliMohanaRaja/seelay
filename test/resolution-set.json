@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "notes": "PLAN.md 1.3 gate: >= 12/15 correct top match, LLM-free rate reported. Expectations use title/year/media_type (TMDB canonical values), not memorized TMDB ids. Regional titles per risk R6. Case youtube-rrr depends on YouTube oEmbed for video f_vbAtFSEc0 (verified live 2026-07-18: title is 'RRR Official Trailer (Hindi) India's Biggest Action Drama | NTR,RamCharan,AjayD,AliaB | SS Rajamouli').",
+  "cases": [
+    {
+      "id": "url-imdb-dark",
+      "class": "url",
+      "capture": { "payload_type": "url", "payload": "https://www.imdb.com/title/tt5753856/" },
+      "expect": { "title": "Dark", "year": 2017, "media_type": "tv" },
+      "expected_tier": "T0"
+    },
+    {
+      "id": "url-tmdb-inception",
+      "class": "url",
+      "capture": { "payload_type": "url", "payload": "https://www.themoviedb.org/movie/27205-inception" },
+      "expect": { "title": "Inception", "year": 2010, "media_type": "movie" },
+      "expected_tier": "T0"
+    },
+    {
+      "id": "url-letterboxd-past-lives",
+      "class": "url",
+      "capture": { "payload_type": "url", "payload": "https://letterboxd.com/film/past-lives/" },
+      "expect": { "title": "Past Lives", "year": 2023, "media_type": "movie" },
+      "expected_tier": "T0"
+    },
+    {
+      "id": "url-youtube-rrr-trailer",
+      "class": "url",
+      "capture": { "payload_type": "url", "payload": "https://www.youtube.com/watch?v=f_vbAtFSEc0" },
+      "expect": { "title": "RRR", "year": 2022, "media_type": "movie" },
+      "expected_tier": "T1"
+    },
+    {
+      "id": "title-inception",
+      "class": "plain_title",
+      "capture": { "payload_type": "text", "payload": "Inception" },
+      "expect": { "title": "Inception", "year": 2010, "media_type": "movie" },
+      "expected_tier": "T2"
+    },
+    {
+      "id": "title-past-lives",
+      "class": "plain_title",
+      "capture": { "payload_type": "text", "payload": "past lives" },
+      "expect": { "title": "Past Lives", "year": 2023, "media_type": "movie" },
+      "expected_tier": "T2"
+    },
+    {
+      "id": "title-the-bear",
+      "class": "plain_title",
+      "capture": { "payload_type": "text", "payload": "The Bear" },
+      "expect": { "title": "The Bear", "year": 2022, "media_type": "tv" },
+      "expected_tier": "T2"
+    },
+    {
+      "id": "title-oppenheimer",
+      "class": "plain_title",
+      "capture": { "payload_type": "text", "payload": "Oppenheimer" },
+      "expect": { "title": "Oppenheimer", "year": 2023, "media_type": "movie" },
+      "expected_tier": "T2"
+    },
+    {
+      "id": "quickadd-dark-netflix",
+      "class": "quick_add",
+      "capture": { "payload_type": "text", "payload": "dark netflix — from priya" },
+      "expect": { "title": "Dark", "year": 2017, "media_type": "tv", "who": "priya" },
+      "expected_tier": "T2"
+    },
+    {
+      "id": "quickadd-rrr-weekend",
+      "class": "quick_add",
+      "capture": { "payload_type": "text", "payload": "watch RRR this weekend" },
+      "expect": { "title": "RRR", "year": 2022, "media_type": "movie" },
+      "expected_tier": "T2"
+    },
+    {
+      "id": "quickadd-sacred-games",
+      "class": "quick_add",
+      "capture": { "payload_type": "text", "payload": "sacred games netflix — from anil" },
+      "expect": { "title": "Sacred Games", "year": 2018, "media_type": "tv", "who": "anil" },
+      "expected_tier": "T2"
+    },
+    {
+      "id": "regional-3-idiots",
+      "class": "regional",
+      "capture": { "payload_type": "text", "payload": "3 idiots" },
+      "expect": { "title": "3 Idiots", "year": 2009, "media_type": "movie" },
+      "expected_tier": "T2"
+    },
+    {
+      "id": "regional-kantara",
+      "class": "regional",
+      "capture": { "payload_type": "text", "payload": "Kantara" },
+      "expect": { "title": "Kantara", "year": 2022, "media_type": "movie" },
+      "expected_tier": "T2"
+    },
+    {
+      "id": "regional-soorarai-pottru",
+      "class": "regional",
+      "capture": { "payload_type": "text", "payload": "Soorarai Pottru" },
+      "expect": { "title": "Soorarai Pottru", "year": 2020, "media_type": "movie" },
+      "expected_tier": "T2"
+    },
+    {
+      "id": "regional-gully-boy-prime",
+      "class": "regional",
+      "capture": { "payload_type": "text", "payload": "gully boy prime" },
+      "expect": { "title": "Gully Boy", "year": 2019, "media_type": "movie" },
+      "expected_tier": "T2"
+    }
+  ]
+}
