@@ -85,3 +85,17 @@ honestly (the fallback still costs pennies at this scale) or invest in better fr
   deferred by founder decision (2026-07-16) to run alongside Stage 4 dogfooding instead
   of before the build. The pre-registered decision rules in AUDIT.md still apply when
   it runs.
+
+- **T4, the Intelligent Fallback (deferred 2026-07-18, by measurement).** The
+  deterministic waterfall was built tier-by-tier against the v1 test set, with each
+  tier kept only if it improved coverage: **T0 (URL patterns) 3/15 → +T1 (page
+  metadata) 4/15 → +T2 (text parse) 15/15** — clearing the ≥12/15 gate at a 100%
+  LLM-free rate. An LLM tier cannot improve on a set the free tiers already saturate,
+  so building it now would be cost and complexity with zero measurable benefit.
+  **Revisit when any of these fire:** (a) Stage-4 dogfooding shows real captures
+  landing in `needs_hint` because T2 can't parse them (vague phrasings like "that
+  german time-travel show"); (b) Stage-2 screenshots fail the 7/10 OCR bar at step
+  2.2 (R1's budget corollary — T4-vision becomes the fallback); (c) the Stage-4
+  LLM-free rate drops below the A11 majority target. The interface seam is already
+  designed (ARCHITECTURE.md T4: one function, env-configured provider), so adding it
+  later is a bounded task, not a redesign.
