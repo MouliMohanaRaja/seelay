@@ -1,5 +1,6 @@
 import { NextResponse, after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
+import { resolveCapture } from "@/lib/resolve/pipeline";
 
 // PLAN.md 1.2 — capture API. Law 1: store the raw capture before anything
 // else. Law 2: capture never blocks — no resolution here, ever (fence).
@@ -81,14 +82,44 @@ export async function POST(req: Request) {
   // A raw item makes the catch visible on the receipt (1.4) before any
   // resolution exists. It is interpretation, not evidence — Law 2 lets it
   // happen after the response so the capture gesture never waits on it.
+  // The waterfall (T0–T2, no LLM) then upgrades the item's state; on any
+  // failure the item stays raw — visible, never lost, never guessed (Law 3).
   after(async () => {
-    const { error: itemError } = await db
+    const { data: item, error: itemError } = await db
       .from("items")
-      .insert({ capture_id: capture.id, state: "raw", who: whoHint });
-    if (itemError) {
+      .insert({ capture_id: capture.id, state: "raw", who: whoHint })
+      .select("id")
+      .single();
+    if (itemError || !item) {
       console.error(
-        `raw item creation failed for capture ${capture.id}: ${itemError.message}`
+        `raw item creation failed for capture ${capture.id}: ${itemError?.message}`
       );
+      return;
+    }
+    try {
+      const result = await resolveCapture(payloadType, payload.trim(), whoHint);
+      const { error: updateError } = await db
+        .from("items")
+        .update({
+          state: result.state,
+          tmdb_id: result.match?.tmdbId ?? null,
+          title: result.match?.title ?? null,
+          year: result.match?.year ?? null,
+          media_type: result.match?.mediaType ?? null,
+          poster_ref: result.match?.posterRef ?? null,
+          confidence: result.score,
+          who: result.whoHint ?? whoHint,
+          resolved_at: new Date().toISOString(),
+          metadata: { tier: result.tierUsed, llm_used: result.llmUsed },
+        })
+        .eq("id", item.id);
+      if (updateError) {
+        console.error(
+          `item update failed for capture ${capture.id}: ${updateError.message}`
+        );
+      }
+    } catch (e) {
+      console.error(`resolution failed for capture ${capture.id}:`, e);
     }
   });
 

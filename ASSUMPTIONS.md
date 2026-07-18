@@ -63,13 +63,15 @@ tripwire fires (PLAN.md R4).
 **A10 — The extraction waterfall is accurate enough to be trusted.**
 Deterministic tiers (URL patterns, metadata, text parse, free OCR) plus an LLM
 fallback resolve real captures correctly. The 3-second promise and Law 3 of the trust
-contract both depend on it. *Status: UNTESTED.* Measured directly at PLAN.md steps 1.3
-and 2.2 with real inputs, including Hindi/regional titles. This is the plan's earliest
-tripwire by design.
+contract both depend on it. *Status: SUPPORTED (initial, 2026-07-18)* — 15/15 correct
+top match on the v1 test set (text/URL only; T0 3, T1 +1, T2 +11), all 6 regional
+titles correct. Images (T3, Stage 2) and real dogfooding inputs still untested.
 
 **A11 — A majority of real captures resolve with zero LLM calls.**
 The budget constraint's load-bearing bet: deterministic tiers carry most of the volume.
-*Status: UNTESTED.* Sensor: LLM-free rate at PLAN.md 1.3, 2.2, and the Stage-4 numbers
+*Status: SUPPORTED (initial, 2026-07-18)* — 100% LLM-free on the v1 test set; T4 is
+not even implemented yet. Real dogfooding volume (and screenshots at Stage 2) is the
+harder test. Sensor: LLM-free rate at PLAN.md 1.3, 2.2, and the Stage-4 numbers
 page. Challenged if: screenshots dominate real captures AND OCR underperforms on them,
 making the LLM tier the common path. Consequence if dead: revise the budget expectation
 honestly (the fallback still costs pennies at this scale) or invest in better free OCR

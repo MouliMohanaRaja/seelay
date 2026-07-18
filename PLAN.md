@@ -13,11 +13,12 @@ shells on top; the first-shell decision (bot vs. native app) is deliberately def
 to gate 2.4 below. Budget constraint: student/indie — free tiers and open source
 first, paid AI demoted to fallback and measured. Read [PRD.md](PRD.md) for scope
 and the trust contract, [ARCHITECTURE.md](ARCHITECTURE.md) for contracts and stack,
-[ASSUMPTIONS.md](ASSUMPTIONS.md) for what dogfooding must attack. **Status: step 1.2
-done (capture API live locally, schema migrated, Law 1 enforced in Postgres). Step 1.1
-partially open: Supabase ✅, Vercel deploy + phone verify still pending. Next: finish
-the 1.1 deploy, then step 1.3 (text/URL resolution waterfall).** Update this block as
-stages complete.
+[ASSUMPTIONS.md](ASSUMPTIONS.md) for what dogfooding must attack. **Status: step 1.3
+done — waterfall T0–T2 built test-first, 15/15 on the test set, 100% LLM-free, wired
+into the capture API (async, states land in `items`). T4 deliberately not built yet.
+Step 1.1 remains partially open: Vercel deploy + phone verify (user reports env vars
+added in Vercel; deploy unconfirmed). Next: 1.4 — the receipt page.** Update this
+block as stages complete.
 
 ## Decision log
 
@@ -70,6 +71,15 @@ deployed page; *Dark (2017)* appears in the list with poster and "from Priya."
   resolve without T4). Record both numbers in this file.
   Fence: no image handling (that's Stage 2); no resolver registry — one interface, one
   implementation; no threshold gold-plating — record accuracy, move on.
+  **Verified 2026-07-18 (tier-by-tier, test-first):** T0 alone 3/15 → +T1 4/15 →
+  +T2 **15/15** — gate (≥12/15) met. **LLM-free rate: 100% (0 T4 calls); T4 not
+  implemented** — deferred until real dogfooding captures produce failures the set
+  doesn't contain. All 6 regional titles resolved (R6 sensor green). States: 10
+  resolved / 5 needs_confirm — confirms are genuine ambiguity (close runner-ups),
+  per Law 3. End-to-end verified through the API: "kantara — from divya" →
+  raw → resolved Kantara (2022) who=divya tier=T2; IMDb URL → Dark (2017) tier=T0.
+  Field note: transient ECONNRESET to TMDB from local ISP — resolver retries 3×
+  with backoff; on final failure items stay raw (Law 1), not lost.
 
 - **1.4 The receipt page.**
   Goal: chronological list showing every item in its state (resolved / needs_confirm /
