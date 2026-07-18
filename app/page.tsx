@@ -87,6 +87,9 @@ export default function Receipt() {
   }, []);
 
   useEffect(() => {
+    // load() is async — every setState inside it happens after an await,
+    // never synchronously within the effect body.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
 
