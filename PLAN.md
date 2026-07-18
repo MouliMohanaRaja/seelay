@@ -14,11 +14,13 @@ to gate 2.4 below. Budget constraint: student/indie — free tiers and open sour
 first, paid AI demoted to fallback and measured. Read [PRD.md](PRD.md) for scope
 and the trust contract, [ARCHITECTURE.md](ARCHITECTURE.md) for contracts and stack,
 [ASSUMPTIONS.md](ASSUMPTIONS.md) for what dogfooding must attack. **Status: step 1.4
-done — receipt page live: state-aware rows, one-tap confirm, one-word hint loop,
-provenance + original capture on every row. Steps 1.2–1.4 verified locally. Step 1.1
-remains partially open: Vercel deploy + phone verify. Next: 1.5 — quick-add on the
-receipt (the zero-artifact path), then the Stage-1 boundary ritual.** Update this
-block as stages complete.
+done + refined — receipt page live with a backend-driven resolution state machine
+(raw → resolving → retrying → resolved/needs_confirm/needs_hint; failed runs land in
+needs_hint with metadata.resolution_failed). The UI reflects backend truth, not a
+client-side timeout. Vendored design skills removed from the repo. Steps 1.2–1.4
+verified locally. Step 1.1 remains partially open: Vercel deploy + phone verify. Next:
+1.5 — quick-add on the receipt (the zero-artifact path), then the Stage-1 boundary
+ritual.** Update this block as stages complete.
 
 ## Decision log
 
@@ -97,6 +99,17 @@ deployed page; *Dark (2017)* appears in the list with poster and "from Priya."
   resolved Dark (2017) via the hint-alone fallback. Original capture text visible on
   every row (Law 1); provenance line under every title. Verify-from-real-phone
   remains a founder step (network URL); viewport-level verification done.
+  **Refined 2026-07-18 (backend-driven state machine):** replaced the fixed 90s UI
+  stall guess with real server-written states (migration 0003 adds `resolving`,
+  `retrying`). Verified end-to-end: happy path stepped raw → resolving → retrying →
+  needs_confirm (The Matrix) live; forced-failure path (bad TMDB key) stepped
+  raw → resolving → retrying → needs_hint with metadata.resolution_failed +
+  "TMDB 401"; UI showed the distinct "couldn't reach the identification service"
+  copy; hint retry from the failed state recovered it to resolved (Interstellar)
+  and cleared the flag. DB check constraint still rejects unknown states (400).
+  Known cruft: a few pre-state-machine `raw` orphan rows from earlier tests show
+  "Caught. Starting to identify…" and poll until the 60-tick guard; harmless test
+  data, not a code path real captures hit.
 
 - **1.5 Quick-add on the receipt (zero-artifact path).**
   Goal: a text box at the top of the receipt: type → captured → resolves in background.

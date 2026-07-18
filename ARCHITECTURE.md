@@ -54,12 +54,18 @@ Law 2). No resolution happens on this request.
 `GET /api/items` — chronological list, each item in exactly one state:
 
 - `raw` — stored, not yet processed (visible: "caught, working on it")
+- `resolving` — the pipeline is actively running (server-written truth, not a UI guess)
+- `retrying` — a transient upstream failure (e.g. TMDB) is being retried
 - `resolved` — auto-matched at high confidence; raw original linked and inspectable
 - `needs_confirm` — top candidate attached, awaiting one tap
-- `needs_hint` — low confidence; asks for one word
+- `needs_hint` — low confidence, OR retries exhausted (`metadata.resolution_failed`);
+  asks for one word
 - `confirmed` — user-verified
 
-`POST /api/items/:id/confirm` and `POST /api/items/:id/hint` complete the loop.
+`resolving`/`retrying` are written by the resolution handler so the receipt reflects
+backend progress instead of inferring it from elapsed time. A run that exhausts its
+retries lands explicitly in `needs_hint` — never left stuck. `POST /api/items/:id/confirm`
+and `POST /api/items/:id/hint` complete the loop.
 
 ## Data model
 

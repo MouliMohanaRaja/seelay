@@ -7,7 +7,21 @@ import styles from "./page.module.css";
 // PLAN.md 1.4 — the receipt. Reverse-chronological, states visible,
 // provenance intact, one-tap confirm, one-word hint. Nothing else.
 
-type ItemState = "raw" | "resolved" | "needs_confirm" | "needs_hint" | "confirmed";
+// Mirrors lib/resolve/types.ts ItemState — backend truth, not a client
+// guess: "resolving"/"retrying" are written by the server while the
+// pipeline runs, and a run that exhausts its retries lands explicitly in
+// "needs_hint" (see markResolutionFailed in lib/items.ts) rather than the
+// UI inferring a stall from elapsed time.
+type ItemState =
+  | "raw"
+  | "resolving"
+  | "retrying"
+  | "resolved"
+  | "needs_confirm"
+  | "needs_hint"
+  | "confirmed";
+
+const IN_FLIGHT_STATES: ItemState[] = ["raw", "resolving", "retrying"];
 
 type Capture = {
   payload_type: "url" | "text" | "image";
@@ -25,11 +39,10 @@ type Item = {
   poster_ref: string | null;
   confidence: number | null;
   who: string | null;
+  metadata: { resolution_failed?: boolean } | null;
   created_at: string;
   captures: Capture | Capture[] | null;
 };
-
-const STALL_MS = 90_000;
 
 function captureOf(item: Item): Capture | null {
   if (!item.captures) return null;
@@ -56,13 +69,6 @@ function dateLabel(iso: string): string {
     month: "short",
     day: "numeric",
   });
-}
-
-function isStalled(item: Item): boolean {
-  return (
-    item.state === "raw" &&
-    Date.now() - new Date(item.created_at).getTime() > STALL_MS
-  );
 }
 
 export default function Receipt() {
@@ -93,13 +99,13 @@ export default function Receipt() {
     load();
   }, [load]);
 
-  // Poll while something is still identifying, so raw flips to its real
-  // state in front of the user. Bounded: stalled items stop the clock.
+  // Poll while the backend reports work in flight (raw/resolving/retrying)
+  // — never a client-side timeout. The pipeline itself is what decides an
+  // item is done trying and flips it to needs_hint; the UI just reflects
+  // that. pollCount is purely a runaway-request guard, not a truth claim.
   useEffect(() => {
-    const identifying = (items ?? []).some(
-      (i) => i.state === "raw" && !isStalled(i)
-    );
-    if (!identifying || pollCount.current > 15) return;
+    const inFlight = (items ?? []).some((i) => IN_FLIGHT_STATES.includes(i.state));
+    if (!inFlight || pollCount.current > 60) return;
     const t = setTimeout(() => {
       pollCount.current += 1;
       load();
@@ -191,7 +197,6 @@ function Row({
   onSendHint: (hint: string) => void;
 }) {
   const capture = captureOf(item);
-  const stalled = isStalled(item);
   const identified = item.state === "resolved" || item.state === "confirmed";
   const provenance = [
     item.who ? `from ${item.who}` : null,
@@ -260,8 +265,18 @@ function Row({
           </p>
         )}
 
-        {item.state === "raw" && !stalled && (
+        {item.state === "raw" && (
+          <p className={styles.stateQuiet}>Caught. Starting to identify…</p>
+        )}
+
+        {item.state === "resolving" && (
           <p className={styles.stateQuiet}>Identifying…</p>
+        )}
+
+        {item.state === "retrying" && (
+          <p className={styles.stateQuiet}>
+            Having trouble reaching the identification service — retrying…
+          </p>
         )}
 
         {item.state === "needs_confirm" && (
@@ -282,13 +297,14 @@ function Row({
           </div>
         )}
 
-        {(item.state === "needs_hint" || stalled || (item.state === "needs_confirm" && hintOpen)) && (
+        {(item.state === "needs_hint" ||
+          (item.state === "needs_confirm" && hintOpen)) && (
           <HintForm
             label={
               item.state === "needs_confirm"
                 ? "One word that identifies it"
-                : stalled
-                  ? "Identification stalled — a word can restart it"
+                : item.metadata?.resolution_failed
+                  ? "Couldn’t reach the identification service — a word can restart it"
                   : "Couldn’t identify this yet — one word helps"
             }
             busy={busy}

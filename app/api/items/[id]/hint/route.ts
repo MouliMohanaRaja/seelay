@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { resolveCapture } from "@/lib/resolve/pipeline";
-import { applyResolutionToItem } from "@/lib/items";
+import { applyResolutionToItem, markItemState, markResolutionFailed } from "@/lib/items";
 
 // Contract 2 — the one-word hint loop. The hint re-enters the waterfall at
 // T2 (ARCHITECTURE.md): original text + hint combined; if that still can't
@@ -47,22 +47,38 @@ export async function POST(
   const baseText =
     capture?.payload_type === "text" ? (capture.payload_text ?? "") : "";
 
-  let result = await resolveCapture(
-    "text",
-    `${baseText} ${hint}`.trim(),
-    item.who
-  );
-  if (result.score < CONFIRM_BAR && baseText) {
-    const hintAlone = await resolveCapture("text", hint, item.who);
-    if (hintAlone.score > result.score) result = hintAlone;
-  }
+  await markItemState(db, id, "resolving");
+  const onRetry = () => markItemState(db, id, "retrying");
 
-  const updateError = await applyResolutionToItem(db, id, result, item.who);
-  if (updateError) {
+  try {
+    let result = await resolveCapture(
+      "text",
+      `${baseText} ${hint}`.trim(),
+      item.who,
+      { onRetry }
+    );
+    if (result.score < CONFIRM_BAR && baseText) {
+      const hintAlone = await resolveCapture("text", hint, item.who, {
+        onRetry,
+      });
+      if (hintAlone.score > result.score) result = hintAlone;
+    }
+
+    const updateError = await applyResolutionToItem(db, id, result, item.who);
+    if (updateError) {
+      return NextResponse.json(
+        { error: "update_failed", detail: updateError },
+        { status: 500 }
+      );
+    }
+    return NextResponse.json({ id, state: result.state });
+  } catch (e) {
+    // Backend truth, not silence: the item goes back to needs_hint with
+    // resolution_failed rather than staying stuck at "resolving".
+    await markResolutionFailed(db, id, e);
     return NextResponse.json(
-      { error: "update_failed", detail: updateError },
-      { status: 500 }
+      { id, state: "needs_hint", error: "resolution_failed" },
+      { status: 502 }
     );
   }
-  return NextResponse.json({ id, state: result.state });
 }

@@ -34,3 +34,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# vendored design-tooling skills — local dev aids, not product code.
+# build-planner and project-setup are small, project-specific and stay tracked.
+.claude/skills/emil-design-eng/
+.claude/skills/frontend-design/
+.claude/skills/impeccable/

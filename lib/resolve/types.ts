@@ -31,8 +31,16 @@ export type EntityMatch = {
   matchQuality: number;
 };
 
+// raw → resolving → (retrying)* → resolved | needs_confirm | needs_hint
+// needs_hint/needs_confirm → resolving (on a hint retry) → ...
+// resolved | needs_confirm → confirmed (on user confirm)
+// "retrying" and a failed run landing in "needs_hint" are both backend
+// truth, not a UI-side guess — see route handlers in app/api/items and
+// app/api/captures.
 export type ItemState =
   | "raw"
+  | "resolving"
+  | "retrying"
   | "resolved"
   | "needs_confirm"
   | "needs_hint"

@@ -1,6 +1,46 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { ResolutionResult } from "@/lib/resolve/types";
+import type { ItemState, ResolutionResult } from "@/lib/resolve/types";
+
+// Shared: mark an item's in-progress state (resolving / retrying) so the
+// receipt reflects backend truth rather than a client-side timeout guess.
+// Best-effort — a failed status write must never break resolution itself.
+export async function markItemState(
+  db: SupabaseClient,
+  itemId: string,
+  state: Extract<ItemState, "resolving" | "retrying">
+): Promise<void> {
+  const { error } = await db.from("items").update({ state }).eq("id", itemId);
+  if (error) {
+    console.error(`state -> ${state} failed for item ${itemId}: ${error.message}`);
+  }
+}
+
+// A resolution run that threw (retries exhausted, or any other pipeline
+// error) is backend truth too: the item goes to needs_hint with a flag
+// distinguishing "we couldn't reach the identification service" from an
+// ordinary low-confidence extraction, instead of staying stuck.
+export async function markResolutionFailed(
+  db: SupabaseClient,
+  itemId: string,
+  error: unknown
+): Promise<void> {
+  const { error: updateError } = await db
+    .from("items")
+    .update({
+      state: "needs_hint",
+      metadata: {
+        resolution_failed: true,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    })
+    .eq("id", itemId);
+  if (updateError) {
+    console.error(
+      `failure-state update failed for item ${itemId}: ${updateError.message}`
+    );
+  }
+}
 
 // Shared: write a pipeline result onto an item row. Used by the capture
 // route (async resolution) and the hint route (re-resolution).

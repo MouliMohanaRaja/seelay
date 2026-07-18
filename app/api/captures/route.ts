@@ -1,7 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { resolveCapture } from "@/lib/resolve/pipeline";
-import { applyResolutionToItem } from "@/lib/items";
+import { applyResolutionToItem, markItemState, markResolutionFailed } from "@/lib/items";
 
 // PLAN.md 1.2 — capture API. Law 1: store the raw capture before anything
 // else. Law 2: capture never blocks — no resolution here, ever (fence).
@@ -97,8 +97,11 @@ export async function POST(req: Request) {
       );
       return;
     }
+    await markItemState(db, item.id, "resolving");
     try {
-      const result = await resolveCapture(payloadType, payload.trim(), whoHint);
+      const result = await resolveCapture(payloadType, payload.trim(), whoHint, {
+        onRetry: () => markItemState(db, item.id, "retrying"),
+      });
       const updateError = await applyResolutionToItem(
         db,
         item.id,
@@ -112,6 +115,7 @@ export async function POST(req: Request) {
       }
     } catch (e) {
       console.error(`resolution failed for capture ${capture.id}:`, e);
+      await markResolutionFailed(db, item.id, e);
     }
   });
 

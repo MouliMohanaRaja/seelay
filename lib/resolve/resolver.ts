@@ -4,8 +4,15 @@ import type { Candidate, EntityMatch } from "./types";
 // (TMDB). A registry/config/second implementation is rejected until a second
 // vertical exists (ARCHITECTURE.md).
 
+export type ResolveOptions = {
+  /** Called before each retry attempt so the caller can record backend
+   *  truth (e.g. flip the item to "retrying") instead of the UI guessing
+   *  from elapsed time. Best-effort — errors are swallowed. */
+  onRetry?: () => void | Promise<void>;
+};
+
 export interface EntityResolver {
-  resolve(candidate: Candidate): Promise<EntityMatch[]>;
+  resolve(candidate: Candidate, opts?: ResolveOptions): Promise<EntityMatch[]>;
 }
 
 const TMDB = "https://api.themoviedb.org/3";
@@ -32,17 +39,27 @@ function auth(): { query: string; headers: Record<string, string> } {
 
 async function tmdbGet(
   path: string,
-  params: Record<string, string> = {}
+  params: Record<string, string> = {},
+  opts: ResolveOptions = {}
 ): Promise<Record<string, unknown>> {
   const a = auth();
   const qs = new URLSearchParams(params).toString();
   const url = `${TMDB}${path}?${[qs, a.query].filter(Boolean).join("&")}`;
   // TMDB reachability can be flaky (transient ECONNRESET, notably from some
   // Indian ISPs) — retry with a short backoff before giving up. On final
-  // failure the item stays raw: captured, visible, resolvable later (Law 1).
+  // failure the caller (pipeline/route) marks the item needs_hint with
+  // resolution_failed — never left silently stuck (Law 1 stays satisfied:
+  // the capture itself was already stored before this ever runs).
   let lastError: unknown;
   for (let attempt = 0; attempt < 5; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 300 * attempt));
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, 300 * attempt));
+      try {
+        await opts.onRetry?.();
+      } catch {
+        // best-effort status signal — never let it break resolution
+      }
+    }
     try {
       const res = await fetch(url, {
         headers: a.headers,
@@ -97,18 +114,24 @@ function titleSimilarity(a: string, b: string): number {
 }
 
 export class TmdbResolver implements EntityResolver {
-  async resolve(c: Candidate): Promise<EntityMatch[]> {
+  async resolve(c: Candidate, opts: ResolveOptions = {}): Promise<EntityMatch[]> {
     // Direct id lookup — certain.
     if (c.tmdbId && c.mediaType) {
-      const d = (await tmdbGet(`/${c.mediaType}/${c.tmdbId}`)) as TmdbEntity;
+      const d = (await tmdbGet(
+        `/${c.mediaType}/${c.tmdbId}`,
+        {},
+        opts
+      )) as TmdbEntity;
       return [toMatch(d, c.mediaType, 1)];
     }
 
     // IMDb id → TMDB find — certain.
     if (c.imdbId) {
-      const d = await tmdbGet(`/find/${c.imdbId}`, {
-        external_source: "imdb_id",
-      });
+      const d = await tmdbGet(
+        `/find/${c.imdbId}`,
+        { external_source: "imdb_id" },
+        opts
+      );
       const movie = (d.movie_results as TmdbEntity[] | undefined)?.[0];
       const tv = (d.tv_results as TmdbEntity[] | undefined)?.[0];
       const r = movie ?? tv;
@@ -118,10 +141,11 @@ export class TmdbResolver implements EntityResolver {
 
     // Title → fuzzy search.
     if (c.title) {
-      const d = await tmdbGet("/search/multi", {
-        query: c.title,
-        include_adult: "false",
-      });
+      const d = await tmdbGet(
+        "/search/multi",
+        { query: c.title, include_adult: "false" },
+        opts
+      );
       const results = ((d.results as TmdbEntity[] | undefined) ?? []).filter(
         (r) => r.media_type === "movie" || r.media_type === "tv"
       );

@@ -17,6 +17,8 @@ export type PipelineOptions = {
   /** highest tier allowed to run (default: all implemented) */
   maxTier?: number;
   resolver?: EntityResolver;
+  /** forwarded to the resolver — see ResolveOptions */
+  onRetry?: () => void | Promise<void>;
 };
 
 const CONFIDENT = 0.5;
@@ -43,7 +45,9 @@ export async function resolveCapture(
     candidate = extractT2(capture) ?? candidate;
   }
 
-  const matches = candidate ? await resolver.resolve(candidate) : [];
+  const matches = candidate
+    ? await resolver.resolve(candidate, { onRetry: opts.onRetry })
+    : [];
   const { state, score, match } = scoreResolution(candidate, matches);
 
   return {
