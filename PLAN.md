@@ -19,8 +19,11 @@ COMPLETE — walking skeleton done end-to-end: capture API, deterministic waterf
 quick-add all built and verified locally. Stage-1 boundary review recorded in
 ASSUMPTIONS.md (engine assumptions supported; all behavioral assumptions still
 untested by construction — need real dogfooding). Only open Stage-1 item: the 1.1
-Vercel deploy + phone verify (founder step). Next: Stage 2, step 2.1 — image
-ingestion (screenshots).** Update this block as stages complete.
+Vercel deploy + phone verify (founder step). Step 2.1 done — image ingestion live
+(private bucket, proxy-served thumbnails, honest needs_hint until 2.2 adds OCR).
+Next: Stage 2, step 2.2 — image extraction (tesseract.js OCR T3, LLM-vision T4
+fallback), the real "screenshot → resolved" magic and R1's accuracy sensor.**
+Update this block as stages complete.
 
 ## Decision log
 
@@ -137,6 +140,20 @@ roll to the app; it appears in the receipt correctly resolved.
   Where: `app/api/captures/route.ts`, storage bucket, receipt raw-state rendering.
   Verify: upload a screenshot via the web page → raw item with thumbnail in receipt.
   Fence: no camera-roll scanning; no gallery UI.
+  **Verified 2026-07-20:** multipart upload → 201, image stored in the private
+  `captures` bucket (auto-created on first use — no dashboard step), proxy
+  `GET /api/captures/[id]/image` streams the exact bytes back (27161 B, image/png).
+  Item settles at `needs_hint` (2.1 has no image extraction — honest, not
+  resolution_failed) with the screenshot thumbnail in the poster slot and provenance
+  "Uploaded · date" (not the misleading "Typed"). Non-image types rejected (400).
+  Image→hint→resolved verified end-to-end (screenshot + hint "dark" → Dark 2017).
+  Build + lint clean; no console errors. UI upload control: "Add a screenshot
+  instead" (hidden file input, `accept="image/*"`).
+  **Carry to 2.2 (Law 1 on resolved images):** once an image resolves it shows the
+  TMDB poster and the screenshot thumbnail is no longer *visible* in the row (still
+  *accessible* via the immutable proxy URL). In 2.1 images rest at needs_hint so the
+  thumbnail always shows; when 2.2 makes images auto-resolve, add a "view original"
+  affordance so Law 1's "visible" clause holds for resolved screenshots too.
 
 - **2.2 Image extraction (OCR-first, LLM-vision fallback).**
   Goal: screenshots flow through the waterfall — tesseract.js OCR (T3) → text parse

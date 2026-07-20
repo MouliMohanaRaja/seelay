@@ -24,6 +24,7 @@ type ItemState =
 const IN_FLIGHT_STATES: ItemState[] = ["raw", "resolving", "retrying"];
 
 type Capture = {
+  id: string;
   payload_type: "url" | "text" | "image";
   payload_text: string | null;
   source: string;
@@ -173,6 +174,28 @@ export default function Receipt() {
     }
   }
 
+  // The screenshot capture path (PLAN.md 2.1): upload an image, stored
+  // instantly and shown with its thumbnail. Multipart, not JSON.
+  async function addImageCapture(file: File): Promise<boolean> {
+    setAdding(true);
+    setAddError(false);
+    try {
+      const form = new FormData();
+      form.append("image", file);
+      form.append("source", "manual");
+      const res = await fetch("/api/captures", { method: "POST", body: form });
+      if (!res.ok) throw new Error();
+      pollCount.current = 0;
+      await load();
+      return true;
+    } catch {
+      setAddError(true);
+      return false;
+    } finally {
+      setAdding(false);
+    }
+  }
+
   return (
     <main className={styles.page}>
       <header className={styles.header}>
@@ -184,7 +207,12 @@ export default function Receipt() {
         )}
       </header>
 
-      <QuickAdd adding={adding} error={addError} onAdd={addCapture} />
+      <QuickAdd
+        adding={adding}
+        error={addError}
+        onAdd={addCapture}
+        onAddImage={addImageCapture}
+      />
 
       {loadError && (
         <p className={styles.notice}>
@@ -220,12 +248,15 @@ function QuickAdd({
   adding,
   error,
   onAdd,
+  onAddImage,
 }: {
   adding: boolean;
   error: boolean;
   onAdd: (text: string) => Promise<boolean>;
+  onAddImage: (file: File) => Promise<boolean>;
 }) {
   const [text, setText] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
   return (
     <form
       className={styles.quickAdd}
@@ -254,6 +285,27 @@ function QuickAdd({
           {adding ? "Adding…" : "Add"}
         </button>
       </div>
+
+      <button
+        type="button"
+        className={styles.screenshotBtn}
+        onClick={() => fileInput.current?.click()}
+        disabled={adding}
+      >
+        Add a screenshot instead
+      </button>
+      <input
+        ref={fileInput}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          e.target.value = ""; // allow re-selecting the same file
+          if (file) await onAddImage(file);
+        }}
+      />
+
       {error && (
         <p className={styles.quickAddError}>
           Couldn&apos;t save that — check the connection and try again.
@@ -280,9 +332,16 @@ function Row({
 }) {
   const capture = captureOf(item);
   const identified = item.state === "resolved" || item.state === "confirmed";
+  // A manually uploaded screenshot is "Uploaded", not "Typed" — the receipt
+  // never mislabels how a capture arrived.
+  const channel =
+    capture &&
+    (capture.payload_type === "image" && capture.source === "manual"
+      ? "Uploaded"
+      : sourceLabel(capture.source));
   const provenance = [
     item.who ? `from ${item.who}` : null,
-    capture ? sourceLabel(capture.source) : null,
+    channel || null,
     capture ? dateLabel(capture.captured_at) : null,
   ]
     .filter(Boolean)
@@ -297,6 +356,16 @@ function Row({
             alt=""
             width={48}
             height={72}
+            className={styles.posterImg}
+          />
+        ) : capture?.payload_type === "image" ? (
+          // The uploaded screenshot IS the original capture (Law 1) — served
+          // from the private-bucket proxy. Plain img: user content, dynamic,
+          // not a next/image optimization candidate.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={`/api/captures/${capture.id}/image`}
+            alt="Screenshot"
             className={styles.posterImg}
           />
         ) : (
@@ -337,6 +406,7 @@ function Row({
             )}
           </p>
         )}
+
 
         {/* State slot — the one place rows differ. */}
         {identified && (

@@ -60,6 +60,30 @@
   outline-offset: 2px;
 }
 
+.screenshotBtn {
+  margin-top: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.screenshotBtn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.screenshotBtn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 .quickAddError {
   padding-top: 8px;
   font-size: 0.8125rem;

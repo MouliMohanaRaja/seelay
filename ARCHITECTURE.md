@@ -49,6 +49,13 @@ Law 2). No resolution happens on this request.
 }
 ```
 
+**Images** are sent as `multipart/form-data` (field `image`) rather than JSON. Bytes go
+to a **private** Supabase Storage bucket (`captures`, auto-created on first use); the
+row keeps only `payload_image_ref` (the object path). Screenshots can hold personal
+content, so nothing is ever a public URL: the receipt reads them back through a
+same-origin proxy, `GET /api/captures/:id/image`, which streams the bytes via the
+service role. Captures are immutable, so that response is cacheable indefinitely.
+
 ## Contract 2 — Receipt API
 
 `GET /api/items` — chronological list, each item in exactly one state:

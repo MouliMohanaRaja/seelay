@@ -1,10 +1,19 @@
 import { NextResponse, after } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { resolveCapture } from "@/lib/resolve/pipeline";
 import { applyResolutionToItem, markItemState, markResolutionFailed } from "@/lib/items";
+import {
+  ensureCapturesBucket,
+  uploadCaptureImage,
+  isAllowedImageType,
+  extForType,
+  MAX_IMAGE_BYTES,
+} from "@/lib/storage";
+import type { PayloadType } from "@/lib/resolve/types";
 
-// PLAN.md 1.2 — capture API. Law 1: store the raw capture before anything
-// else. Law 2: capture never blocks — no resolution here, ever (fence).
+// PLAN.md 1.2 + 2.1 — capture API. Law 1: store the raw capture before
+// anything else. Law 2: capture never blocks — resolution runs in after().
 
 const VALID_SOURCES = new Set([
   "instagram",
@@ -14,7 +23,25 @@ const VALID_SOURCES = new Set([
   "unknown",
 ]);
 
+function pickSource(raw: unknown): string {
+  return typeof raw === "string" && VALID_SOURCES.has(raw) ? raw : "unknown";
+}
+
+function pickWhoHint(raw: unknown): string | null {
+  return typeof raw === "string" && raw.trim().length > 0
+    ? raw.trim().slice(0, 200)
+    : null;
+}
+
 export async function POST(req: Request) {
+  const contentType = req.headers.get("content-type") ?? "";
+  if (contentType.includes("multipart/form-data")) {
+    return handleImageCapture(req);
+  }
+  return handleTextCapture(req);
+}
+
+async function handleTextCapture(req: Request) {
   const started = Date.now();
 
   let body: Record<string, unknown>;
@@ -27,13 +54,6 @@ export async function POST(req: Request) {
   const payloadType = body.payload_type;
   const payload = body.payload;
 
-  if (payloadType === "image") {
-    // Fence: images are not accepted until PLAN.md step 2.1.
-    return NextResponse.json(
-      { error: "images_not_yet_supported", see: "PLAN.md 2.1" },
-      { status: 400 }
-    );
-  }
   if (payloadType !== "url" && payloadType !== "text") {
     return NextResponse.json(
       { error: "payload_type_must_be_url_or_text" },
@@ -50,15 +70,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "payload_too_long" }, { status: 400 });
   }
 
-  const source =
-    typeof body.source === "string" && VALID_SOURCES.has(body.source)
-      ? body.source
-      : "unknown";
-  const whoHint =
-    typeof body.who_hint === "string" && body.who_hint.trim().length > 0
-      ? body.who_hint.trim().slice(0, 200)
-      : null;
-
   const db = supabaseAdmin();
 
   // Law 1: the capture row is the thing that must never fail silently.
@@ -67,10 +78,10 @@ export async function POST(req: Request) {
     .insert({
       payload_type: payloadType,
       payload_text: payload.trim(),
-      source,
-      who_hint: whoHint,
+      source: pickSource(body.source),
+      who_hint: pickWhoHint(body.who_hint),
     })
-    .select("id, captured_at")
+    .select("id")
     .single();
 
   if (captureError || !capture) {
@@ -80,47 +91,125 @@ export async function POST(req: Request) {
     );
   }
 
-  // A raw item makes the catch visible on the receipt (1.4) before any
-  // resolution exists. It is interpretation, not evidence — Law 2 lets it
-  // happen after the response so the capture gesture never waits on it.
-  // The waterfall (T0–T2, no LLM) then upgrades the item's state; on any
-  // failure the item stays raw — visible, never lost, never guessed (Law 3).
-  after(async () => {
-    const { data: item, error: itemError } = await db
-      .from("items")
-      .insert({ capture_id: capture.id, state: "raw", who: whoHint })
-      .select("id")
-      .single();
-    if (itemError || !item) {
-      console.error(
-        `raw item creation failed for capture ${capture.id}: ${itemError?.message}`
-      );
-      return;
-    }
-    await markItemState(db, item.id, "resolving");
-    try {
-      const result = await resolveCapture(payloadType, payload.trim(), whoHint, {
-        onRetry: () => markItemState(db, item.id, "retrying"),
-      });
-      const updateError = await applyResolutionToItem(
-        db,
-        item.id,
-        result,
-        whoHint
-      );
-      if (updateError) {
-        console.error(
-          `item update failed for capture ${capture.id}: ${updateError}`
-        );
-      }
-    } catch (e) {
-      console.error(`resolution failed for capture ${capture.id}:`, e);
-      await markResolutionFailed(db, item.id, e);
-    }
+  scheduleResolution(db, capture.id, pickWhoHint(body.who_hint), {
+    payloadType,
+    text: payload.trim(),
   });
 
   return NextResponse.json(
     { capture_id: capture.id, state: "raw", ms: Date.now() - started },
     { status: 201 }
   );
+}
+
+async function handleImageCapture(req: Request) {
+  const started = Date.now();
+
+  let form: FormData;
+  try {
+    form = await req.formData();
+  } catch {
+    return NextResponse.json({ error: "invalid_form" }, { status: 400 });
+  }
+
+  const file = form.get("image");
+  if (!(file instanceof File)) {
+    return NextResponse.json({ error: "image_required" }, { status: 400 });
+  }
+  if (!isAllowedImageType(file.type)) {
+    return NextResponse.json(
+      { error: "unsupported_image_type", type: file.type },
+      { status: 400 }
+    );
+  }
+  if (file.size === 0) {
+    return NextResponse.json({ error: "empty_image" }, { status: 400 });
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    return NextResponse.json({ error: "image_too_large" }, { status: 400 });
+  }
+
+  const whoHint = pickWhoHint(form.get("who_hint"));
+  const db = supabaseAdmin();
+
+  // Store the image bytes (evidence) before the row that references them.
+  const path = `${crypto.randomUUID()}.${extForType(file.type)}`;
+  try {
+    await ensureCapturesBucket(db);
+    await uploadCaptureImage(db, path, await file.arrayBuffer(), file.type);
+  } catch (e) {
+    return NextResponse.json(
+      { error: "image_store_failed", detail: e instanceof Error ? e.message : String(e) },
+      { status: 500 }
+    );
+  }
+
+  // Law 1: the capture row must never fail silently.
+  const { data: capture, error: captureError } = await db
+    .from("captures")
+    .insert({
+      payload_type: "image",
+      payload_image_ref: path,
+      source: pickSource(form.get("source")),
+      who_hint: whoHint,
+    })
+    .select("id")
+    .single();
+
+  if (captureError || !capture) {
+    return NextResponse.json(
+      { error: "capture_failed", detail: captureError?.message },
+      { status: 500 }
+    );
+  }
+
+  // 2.1 has no image extraction yet (T3/vision is 2.2), so the text
+  // waterfall finds no candidate and the item settles at needs_hint —
+  // honest: caught and stored, awaiting a word to identify. 2.2 slots OCR
+  // into resolveCapture and most screenshots will resolve without a hint.
+  scheduleResolution(db, capture.id, whoHint, { payloadType: "image", text: "" });
+
+  return NextResponse.json(
+    { capture_id: capture.id, state: "raw", ms: Date.now() - started },
+    { status: 201 }
+  );
+}
+
+// Law 2: resolution runs after the response, so the capture gesture never
+// waits. Shared by both capture paths.
+function scheduleResolution(
+  db: SupabaseClient,
+  captureId: string,
+  whoHint: string | null,
+  resolve: { payloadType: PayloadType; text: string }
+) {
+  after(async () => {
+    const { data: item, error: itemError } = await db
+      .from("items")
+      .insert({ capture_id: captureId, state: "raw", who: whoHint })
+      .select("id")
+      .single();
+    if (itemError || !item) {
+      console.error(
+        `raw item creation failed for capture ${captureId}: ${itemError?.message}`
+      );
+      return;
+    }
+    await markItemState(db, item.id, "resolving");
+    try {
+      const result = await resolveCapture(
+        resolve.payloadType,
+        resolve.text,
+        whoHint,
+        { onRetry: () => markItemState(db, item.id, "retrying") }
+      );
+      const updateError = await applyResolutionToItem(db, item.id, result, whoHint);
+      if (updateError) {
+        console.error(`item update failed for capture ${captureId}: ${updateError}`);
+      }
+    } catch (e) {
+      console.error(`resolution failed for capture ${captureId}:`, e);
+      await markResolutionFailed(db, item.id, e);
+    }
+  });
 }

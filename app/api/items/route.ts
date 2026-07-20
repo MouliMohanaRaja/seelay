@@ -11,7 +11,7 @@ export async function GET() {
   const { data, error } = await db
     .from("items")
     .select(
-      "id, state, title, year, media_type, poster_ref, confidence, who, metadata, created_at, captures(payload_type, payload_text, source, captured_at)"
+      "id, state, title, year, media_type, poster_ref, confidence, who, metadata, created_at, captures(id, payload_type, payload_text, source, captured_at)"
     )
     .order("created_at", { ascending: false })
     .limit(100);
