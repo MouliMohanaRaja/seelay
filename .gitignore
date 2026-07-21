@@ -43,3 +43,6 @@ next-env.d.ts
 
 # tesseract.js downloads language data to cwd at runtime
 *.traineddata
+
+# local OCR test fixtures + generated diagnostics (user data, large binaries)
+/test-images/

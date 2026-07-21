@@ -113,9 +113,35 @@ async function main() {
     const bytes = readFileSync(join(dir, fn));
     const exp = expected.get(fn) ?? null;
     const t0 = Date.now();
-    const res = await resolveCapture("image", "", null, {
-      image: { bytes: Buffer.from(bytes), contentType: ctype(fn) },
-    });
+    let res: ResolutionResult;
+    try {
+      res = await resolveCapture("image", "", null, {
+        image: { bytes: Buffer.from(bytes), contentType: ctype(fn) },
+      });
+    } catch (e) {
+      // A TMDB/network failure (retries exhausted) must not abort the whole
+      // run — record it as an upstream error and continue to the next image.
+      const rec: Diagnostic = {
+        image: fn,
+        expected: exp,
+        correct: false,
+        ocrText: `<upstream error: ${e instanceof Error ? e.message : String(e)}>`,
+        ocrConfidence: 0,
+        candidateLines: [],
+        tmdbCandidates: [],
+        match: null,
+        state: "error",
+        tier: null,
+        llmInvoked: false,
+        t4Attempted: false,
+        processingMs: Date.now() - t0,
+        reasons: [],
+      };
+      records.push(rec);
+      writeFileSync(jsonlPath, JSON.stringify(rec) + "\n", { flag: "a" });
+      console.log(`ERROR ${fn}  ${rec.ocrText}  ${rec.processingMs}ms`);
+      continue;
+    }
     const processingMs = Date.now() - t0;
     const correct = !!res.match && !!exp && norm(res.match.title) === norm(exp);
 
