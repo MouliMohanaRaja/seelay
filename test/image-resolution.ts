@@ -1,15 +1,19 @@
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve as resolvePath, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveCapture } from "../lib/resolve/pipeline";
 import { fallbackConfigured } from "../lib/resolve/extract/t4-vision";
+import { OCR_MIN_MEAN_CONFIDENCE } from "../lib/resolve/extract/t3-ocr";
+import type { ResolutionResult } from "../lib/resolve/types";
 
-// PLAN.md 2.2 verify harness. Runs each image in a directory through the
-// full image pipeline (T3 OCR → T2 → TMDB → scorer, T4 if configured) and
-// reports OCR output, match, final state, tier, T4 usage, and latency.
+// PLAN.md 2.2 verify harness — DIAGNOSTIC TOOLING ONLY. Runs each image in a
+// directory through the real image pipeline and records a structured record
+// of why it succeeded or failed. Does not change the pipeline; only reads
+// the read-only diagnostics resolveCapture already returns.
 //
 // Usage: npm run test:images -- <dir-with-images-and-manifest.tsv>
 // manifest.tsv rows: "<filename>\t<expected title>\t<year>"
+// Writes <dir>/diagnostics.jsonl (one record per image) + prints a summary.
 
 const root = resolvePath(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -21,11 +25,62 @@ if (existsSync(envPath)) {
   }
 }
 
+// The diagnostic reason/outcome codes requested for Step 2.2.
+type Reason =
+  | "No text detected"
+  | "Text detected but no TMDB match"
+  | "Multiple ambiguous candidates"
+  | "OCR confidence below threshold"
+  | "Vision rescued"
+  | "Vision failed";
+
+type Diagnostic = {
+  image: string;
+  expected: string | null;
+  correct: boolean;
+  ocrText: string; // truncated
+  ocrConfidence: number; // tesseract mean, 0..100
+  candidateLines: string[];
+  tmdbCandidates: { title: string; year: number | null; matchQuality: number }[];
+  match: { title: string; year: number | null; mediaType: string } | null;
+  state: string;
+  tier: string | null;
+  llmInvoked: boolean;
+  t4Attempted: boolean;
+  processingMs: number;
+  reasons: Reason[];
+};
+
 function norm(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 function ctype(fn: string): string {
   return fn.endsWith(".png") ? "image/png" : "image/jpeg";
+}
+function truncate(s: string, n: number): string {
+  const clean = s.replace(/\s+/g, " ").trim();
+  return clean.length > n ? clean.slice(0, n) + "…" : clean;
+}
+
+// Classify why the image landed where it did. One or more codes may apply.
+function classify(res: ResolutionResult): Reason[] {
+  const reasons: Reason[] = [];
+  const conf = res.ocr?.meanConfidence ?? 0;
+  const text = (res.ocr?.text ?? "").trim();
+  const hasText = text.length > 0 && (res.ocr?.lineCount ?? 0) > 0;
+  const cands = res.tmdbCandidates ?? [];
+
+  if (res.llmUsed) reasons.push("Vision rescued");
+  if (!hasText) reasons.push("No text detected");
+  if (hasText && conf < OCR_MIN_MEAN_CONFIDENCE)
+    reasons.push("OCR confidence below threshold");
+  if (hasText && !res.match && cands.length === 0)
+    reasons.push("Text detected but no TMDB match");
+  if (cands.length >= 2 && cands[1].matchQuality >= cands[0].matchQuality * 0.95)
+    reasons.push("Multiple ambiguous candidates");
+  if (res.t4Attempted && !res.llmUsed) reasons.push("Vision failed");
+
+  return reasons;
 }
 
 async function main() {
@@ -34,6 +89,9 @@ async function main() {
     console.error("usage: tsx test/image-resolution.ts <dir>");
     process.exit(1);
   }
+  const jsonlPath = join(dir, "diagnostics.jsonl");
+  writeFileSync(jsonlPath, ""); // reset
+
   const manifestPath = join(dir, "manifest.tsv");
   const expected = new Map<string, string>();
   if (existsSync(manifestPath)) {
@@ -46,54 +104,84 @@ async function main() {
     .filter((f) => /\.(png|jpe?g)$/i.test(f))
     .sort();
 
-  console.log(`image resolution — ${files.length} images`);
-  console.log(`T4 (Intelligent Fallback) configured: ${fallbackConfigured()}\n`);
+  const configured = fallbackConfigured();
+  console.log(`image resolution diagnostics — ${files.length} images`);
+  console.log(`T4 (Intelligent Fallback) configured: ${configured}\n`);
 
-  let correct = 0;
-  let ocrAlone = 0;
-  let t4Used = 0;
-  const latencies: number[] = [];
-  const states: Record<string, number> = {};
-
+  const records: Diagnostic[] = [];
   for (const fn of files) {
     const bytes = readFileSync(join(dir, fn));
-    const exp = expected.get(fn);
+    const exp = expected.get(fn) ?? null;
     const t0 = Date.now();
     const res = await resolveCapture("image", "", null, {
       image: { bytes: Buffer.from(bytes), contentType: ctype(fn) },
     });
-    const ms = Date.now() - t0;
-    latencies.push(ms);
-    states[res.state] = (states[res.state] ?? 0) + 1;
-    if (res.llmUsed) t4Used++;
-    if (res.tierUsed === "T3" && !res.llmUsed) ocrAlone++;
+    const processingMs = Date.now() - t0;
+    const correct = !!res.match && !!exp && norm(res.match.title) === norm(exp);
 
-    const got = res.match ? `${res.match.title} (${res.match.year})` : "—";
-    const ok = !!res.match && !!exp && norm(res.match.title) === norm(exp);
-    if (ok) correct++;
-    const ocrSnip = (res.ocr?.text ?? "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 48);
+    const rec: Diagnostic = {
+      image: fn,
+      expected: exp,
+      correct,
+      ocrText: truncate(res.ocr?.text ?? "", 160),
+      ocrConfidence: Math.round(res.ocr?.meanConfidence ?? 0),
+      candidateLines: res.ocr?.candidateLines ?? [],
+      tmdbCandidates: (res.tmdbCandidates ?? []).map((c) => ({
+        title: c.title,
+        year: c.year,
+        matchQuality: Math.round(c.matchQuality * 100) / 100,
+      })),
+      match: res.match
+        ? { title: res.match.title, year: res.match.year, mediaType: res.match.mediaType }
+        : null,
+      state: res.state,
+      tier: res.tierUsed,
+      llmInvoked: res.llmUsed,
+      t4Attempted: res.t4Attempted ?? false,
+      processingMs,
+      reasons: classify(res),
+    };
+    records.push(rec);
+    // Append immediately so partial results survive a slow/interrupted run.
+    writeFileSync(jsonlPath, JSON.stringify(rec) + "\n", { flag: "a" });
 
     console.log(
-      `${ok ? "PASS" : "FAIL"}  ${fn}  exp="${exp ?? "?"}"\n` +
-        `      ocr(${res.ocr?.meanConfidence?.toFixed(0) ?? "-"}%): "${ocrSnip}"\n` +
-        `      -> ${got}  state=${res.state} tier=${res.tierUsed ?? "-"} llm=${res.llmUsed} ${ms}ms`
+      `${correct ? "PASS" : "FAIL"}  ${fn}  exp="${exp ?? "?"}"\n` +
+        `      ocr ${rec.ocrConfidence}% "${truncate(rec.ocrText, 56)}"\n` +
+        `      lines: ${JSON.stringify(rec.candidateLines.slice(0, 4))}\n` +
+        `      tmdb:  ${rec.tmdbCandidates.map((c) => `${c.title}(${c.year}) q${c.matchQuality}`).join(", ") || "—"}\n` +
+        `      -> ${rec.match ? `${rec.match.title} (${rec.match.year})` : "—"}  ` +
+        `state=${rec.state} tier=${rec.tier ?? "-"} llm=${rec.llmInvoked} ${processingMs}ms\n` +
+        `      reasons: ${
+          rec.reasons.length
+            ? rec.reasons.join("; ")
+            : rec.correct
+              ? "clean match"
+              : "no listed failure code (spurious/low-quality match)"
+        }`
     );
   }
 
-  const sorted = [...latencies].sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
-  const total = files.length;
+  // Summary.
+  const total = records.length;
+  const correct = records.filter((r) => r.correct).length;
+  const ocrAlone = records.filter((r) => r.tier === "T3" && !r.llmInvoked).length;
+  const t4Used = records.filter((r) => r.llmInvoked).length;
+  const lat = records.map((r) => r.processingMs).sort((a, b) => a - b);
+  const reasonCounts: Record<string, number> = {};
+  for (const r of records)
+    for (const reason of r.reasons)
+      reasonCounts[reason] = (reasonCounts[reason] ?? 0) + 1;
+
   console.log(`\n=== SUMMARY (${total} images) ===`);
   console.log(`correct top candidate: ${correct}/${total}  (bar: >= 7/10)`);
-  console.log(`states: ${JSON.stringify(states)}`);
   console.log(`OCR-alone (T3, no LLM): ${ocrAlone}/${total}`);
-  console.log(`T4 vision used: ${t4Used}/${total}  (configured: ${fallbackConfigured()})`);
+  console.log(`T4 vision used: ${t4Used}/${total}  (configured: ${configured})`);
   console.log(
-    `latency ms: min ${sorted[0]}, median ${median}, max ${sorted[sorted.length - 1]} (first includes OCR worker init)`
+    `latency ms: min ${lat[0]}, median ${lat[Math.floor(lat.length / 2)]}, max ${lat[lat.length - 1]} (first includes OCR worker init)`
   );
+  console.log(`reason tallies: ${JSON.stringify(reasonCounts)}`);
+  console.log(`\nper-image records written to ${jsonlPath}`);
 }
 
 main().catch((e) => {

@@ -54,7 +54,23 @@ export type ResolutionResult = {
   tierUsed: Tier | null;
   llmUsed: boolean;
   whoHint?: string;
-  // Debug/telemetry from the image path (T3), ignored by the DB writer —
-  // used by the 2.2 verify harness to report OCR behaviour.
-  ocr?: { text: string; meanConfidence: number; lineCount: number };
+  // Read-only diagnostics from the image path, ignored by the DB writer and
+  // never affecting behaviour — used by the 2.2 verify harness to explain
+  // why each image succeeded or failed. See test/image-resolution.ts.
+  ocr?: {
+    text: string;
+    meanConfidence: number;
+    lineCount: number;
+    candidateLines: string[]; // OCR lines actually fed to matching
+  };
+  // TMDB candidates returned for the winning attempt (top matches).
+  tmdbCandidates?: {
+    title: string;
+    year: number | null;
+    mediaType: "movie" | "tv";
+    matchQuality: number;
+  }[];
+  // True when the T4 vision step was reached AND a provider was configured
+  // (i.e. a real fallback call was made), regardless of whether it rescued.
+  t4Attempted?: boolean;
 };

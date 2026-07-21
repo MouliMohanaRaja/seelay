@@ -9,7 +9,7 @@ import {
   selectCandidateLines,
   type OcrResult,
 } from "./extract/t3-ocr";
-import { visionExtract } from "./extract/t4-vision";
+import { visionExtract, fallbackConfigured } from "./extract/t4-vision";
 import { scoreResolution, RESOLVE_AT, CONFIRM_AT } from "./score";
 import { TmdbResolver, type EntityResolver, type ResolveOptions } from "./resolver";
 import type {
@@ -41,6 +41,7 @@ const CONFIDENT = 0.5;
 type Attempt = {
   candidate: Candidate | null;
   match: EntityMatch | null;
+  matches: EntityMatch[]; // full TMDB candidate list for this attempt (diagnostics)
   score: number;
   state: ItemState;
   llmUsed: boolean;
@@ -49,6 +50,7 @@ type Attempt = {
 const EMPTY_ATTEMPT: Attempt = {
   candidate: null,
   match: null,
+  matches: [],
   score: 0,
   state: "needs_hint",
   llmUsed: false,
@@ -82,6 +84,8 @@ export async function resolveCapture(
   // Image tiers — only for image captures, only when the text path hasn't
   // already produced a strong match.
   let ocr: OcrResult | undefined;
+  let candidateLines: string[] = []; // diagnostics only
+  let t4Attempted = false; // diagnostics only
   if (
     payloadType === "image" &&
     opts.image &&
@@ -92,7 +96,8 @@ export async function resolveCapture(
     ocr = await runOcr(opts.image.bytes);
     if (ocrHasSignal(ocr)) {
       const confidence = ocrConfidenceToScore(ocr.meanConfidence);
-      for (const line of selectCandidateLines(ocr)) {
+      candidateLines = selectCandidateLines(ocr);
+      for (const line of candidateLines) {
         // parseWho off: OCR text must not fabricate provenance (Law 4).
         const parsed = extractT2({ payloadType: "text", text: line }, { parseWho: false });
         if (!parsed) continue;
@@ -109,6 +114,7 @@ export async function resolveCapture(
 
     // T4 — vision fallback, only if OCR couldn't clear the confirm bar.
     if (best.score < CONFIRM_AT && maxTier >= 4) {
+      if (fallbackConfigured()) t4Attempted = true;
       const vc = await visionExtract(opts.image.bytes, opts.image.contentType);
       if (vc) {
         const attempt = await evaluate(
@@ -131,8 +137,20 @@ export async function resolveCapture(
     llmUsed: best.llmUsed,
     whoHint: best.candidate?.whoHint ?? capture.whoHint,
     ocr: ocr
-      ? { text: ocr.text, meanConfidence: ocr.meanConfidence, lineCount: ocr.lines.length }
+      ? {
+          text: ocr.text,
+          meanConfidence: ocr.meanConfidence,
+          lineCount: ocr.lines.length,
+          candidateLines,
+        }
       : undefined,
+    tmdbCandidates: best.matches.map((m) => ({
+      title: m.title,
+      year: m.year,
+      mediaType: m.mediaType,
+      matchQuality: m.matchQuality,
+    })),
+    t4Attempted,
   };
 }
 
@@ -144,5 +162,5 @@ async function evaluate(
 ): Promise<Attempt> {
   const matches = await resolver.resolve(candidate, resolveOpts);
   const { state, score, match } = scoreResolution(candidate, matches);
-  return { candidate, match, score, state, llmUsed };
+  return { candidate, match, matches, score, state, llmUsed };
 }
