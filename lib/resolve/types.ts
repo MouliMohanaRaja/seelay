@@ -54,4 +54,7 @@ export type ResolutionResult = {
   tierUsed: Tier | null;
   llmUsed: boolean;
   whoHint?: string;
+  // Debug/telemetry from the image path (T3), ignored by the DB writer —
+  // used by the 2.2 verify harness to report OCR behaviour.
+  ocr?: { text: string; meanConfidence: number; lineCount: number };
 };

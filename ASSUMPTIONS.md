@@ -63,9 +63,12 @@ tripwire fires (PLAN.md R4).
 **A10 — The extraction waterfall is accurate enough to be trusted.**
 Deterministic tiers (URL patterns, metadata, text parse, free OCR) plus an LLM
 fallback resolve real captures correctly. The 3-second promise and Law 3 of the trust
-contract both depend on it. *Status: SUPPORTED (initial, 2026-07-18)* — 15/15 correct
-top match on the v1 test set (text/URL only; T0 3, T1 +1, T2 +11), all 6 regional
-titles correct. Images (T3, Stage 2) and real dogfooding inputs still untested.
+contract both depend on it. *Status: SUPPORTED for text/URL (2026-07-18)* — 15/15 on
+the v1 set (T0 3, T1 +1, T2 +11), all 6 regional titles correct. *Images: CHALLENGED /
+open (2026-07-21)* — T3 OCR nails clean UI/logo text but not stylized poster art
+(4/10 on a poster proxy, T4 unconfigured). The image half of A10 rides on T4 vision +
+real screenshots; it is R1's live tripwire, not yet cleared. Real dogfooding inputs
+still untested.
 
 **A11 — A majority of real captures resolve with zero LLM calls.**
 The budget constraint's load-bearing bet: deterministic tiers carry most of the volume.

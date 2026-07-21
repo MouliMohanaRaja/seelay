@@ -40,3 +40,6 @@ next-env.d.ts
 .claude/skills/emil-design-eng/
 .claude/skills/frontend-design/
 .claude/skills/impeccable/
+
+# tesseract.js downloads language data to cwd at runtime
+*.traineddata

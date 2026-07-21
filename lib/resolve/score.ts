@@ -5,8 +5,8 @@ import type { Candidate, EntityMatch, ItemState } from "./types";
 // pushes toward asking instead of guessing. Thresholds tuned against
 // test/resolution-set.json (PLAN.md 1.3/2.2).
 
-const RESOLVE_AT = 0.75;
-const CONFIRM_AT = 0.45;
+export const RESOLVE_AT = 0.75;
+export const CONFIRM_AT = 0.45;
 
 export function scoreResolution(
   candidate: Candidate | null,

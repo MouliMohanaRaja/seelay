@@ -1,0 +1,171 @@
+import type { Candidate } from "../types";
+
+// T4 — the Intelligent Fallback (ARCHITECTURE.md). Vendor-neutral: the
+// provider is an env decision, not an architectural one. Invoked ONLY when
+// T3 (OCR) can't produce a confident-enough candidate, and every invocation
+// is logged and counted (the A11 LLM-free-rate metric / budget line).
+// See docs/2.2-image-extraction.md.
+//
+// Providers implemented: "anthropic" and any OpenAI-compatible endpoint
+// (the default — set FALLBACK_LLM_BASE_URL for OpenRouter/Groq/local/etc).
+// No model shopping (2.2 fence): one env-configured model.
+
+type FallbackConfig = {
+  provider: string;
+  model: string;
+  apiKey: string;
+  baseUrl?: string;
+};
+
+function readConfig(): FallbackConfig | null {
+  const provider = process.env.FALLBACK_LLM_PROVIDER?.trim();
+  const model = process.env.FALLBACK_LLM_MODEL?.trim();
+  const apiKey = process.env.FALLBACK_LLM_API_KEY?.trim();
+  if (!provider || !model || !apiKey) return null;
+  return {
+    provider: provider.toLowerCase(),
+    model,
+    apiKey,
+    baseUrl: process.env.FALLBACK_LLM_BASE_URL?.trim() || undefined,
+  };
+}
+
+export function fallbackConfigured(): boolean {
+  return readConfig() !== null;
+}
+
+const PROMPT =
+  "This image is a screenshot that may reference a single movie or TV show. " +
+  "Identify the one title it is about. Respond with ONLY a JSON object, no prose: " +
+  '{"title": string|null, "year": number|null, "media_type": "movie"|"tv"|null, "confidence": number}. ' +
+  "confidence is 0..1 for how sure you are. If no title is identifiable, set title to null.";
+
+type VisionJson = {
+  title: string | null;
+  year: number | null;
+  media_type: "movie" | "tv" | null;
+  confidence: number;
+};
+
+export async function visionExtract(
+  image: Buffer,
+  contentType: string
+): Promise<Candidate | null> {
+  const cfg = readConfig();
+  if (!cfg) return null; // unconfigured → T4 is a no-op (item settles at needs_hint)
+
+  console.log(
+    `[T4] Intelligent Fallback invoked: provider=${cfg.provider} model=${cfg.model}`
+  );
+
+  let parsed: VisionJson | null = null;
+  try {
+    parsed =
+      cfg.provider === "anthropic"
+        ? await callAnthropic(cfg, image, contentType)
+        : await callOpenAICompatible(cfg, image, contentType);
+  } catch (e) {
+    console.error("[T4] vision call failed:", e);
+    return null;
+  }
+
+  if (!parsed || !parsed.title) return null;
+  return {
+    tier: "T4",
+    confidence: Math.min(0.7, Math.max(0, Number(parsed.confidence) || 0.5)),
+    title: parsed.title,
+    year: parsed.year ?? undefined,
+    mediaType: parsed.media_type ?? undefined,
+  };
+}
+
+function parseJson(text: string): VisionJson | null {
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try {
+    const o = JSON.parse(m[0]);
+    return {
+      title: typeof o.title === "string" && o.title.trim() ? o.title.trim() : null,
+      year: typeof o.year === "number" ? o.year : null,
+      media_type: o.media_type === "tv" || o.media_type === "movie" ? o.media_type : null,
+      confidence: typeof o.confidence === "number" ? o.confidence : 0.5,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function callAnthropic(
+  cfg: FallbackConfig,
+  image: Buffer,
+  contentType: string
+): Promise<VisionJson | null> {
+  const base = cfg.baseUrl ?? "https://api.anthropic.com";
+  const res = await fetch(`${base}/v1/messages`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": cfg.apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: cfg.model,
+      max_tokens: 256,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: contentType,
+                data: image.toString("base64"),
+              },
+            },
+            { type: "text", text: PROMPT },
+          ],
+        },
+      ],
+    }),
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(`anthropic ${res.status}`);
+  const json = (await res.json()) as { content?: { text?: string }[] };
+  return parseJson(json.content?.[0]?.text ?? "");
+}
+
+async function callOpenAICompatible(
+  cfg: FallbackConfig,
+  image: Buffer,
+  contentType: string
+): Promise<VisionJson | null> {
+  const base = cfg.baseUrl ?? "https://api.openai.com/v1";
+  const dataUrl = `data:${contentType};base64,${image.toString("base64")}`;
+  const res = await fetch(`${base}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${cfg.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: cfg.model,
+      max_tokens: 256,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: PROMPT },
+            { type: "image_url", image_url: { url: dataUrl } },
+          ],
+        },
+      ],
+    }),
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(`openai-compatible ${res.status}`);
+  const json = (await res.json()) as {
+    choices?: { message?: { content?: string } }[];
+  };
+  return parseJson(json.choices?.[0]?.message?.content ?? "");
+}

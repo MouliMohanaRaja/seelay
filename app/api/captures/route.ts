@@ -6,6 +6,7 @@ import { applyResolutionToItem, markItemState, markResolutionFailed } from "@/li
 import {
   ensureCapturesBucket,
   uploadCaptureImage,
+  downloadCaptureImage,
   isAllowedImageType,
   extForType,
   MAX_IMAGE_BYTES,
@@ -163,11 +164,13 @@ async function handleImageCapture(req: Request) {
     );
   }
 
-  // 2.1 has no image extraction yet (T3/vision is 2.2), so the text
-  // waterfall finds no candidate and the item settles at needs_hint —
-  // honest: caught and stored, awaiting a word to identify. 2.2 slots OCR
-  // into resolveCapture and most screenshots will resolve without a hint.
-  scheduleResolution(db, capture.id, whoHint, { payloadType: "image", text: "" });
+  // 2.2: the image tiers (T3 OCR → T4 vision) run in resolveCapture; the
+  // bytes are loaded from storage inside the background task.
+  scheduleResolution(db, capture.id, whoHint, {
+    payloadType: "image",
+    text: "",
+    imageRef: path,
+  });
 
   return NextResponse.json(
     { capture_id: capture.id, state: "raw", ms: Date.now() - started },
@@ -181,7 +184,7 @@ function scheduleResolution(
   db: SupabaseClient,
   captureId: string,
   whoHint: string | null,
-  resolve: { payloadType: PayloadType; text: string }
+  resolve: { payloadType: PayloadType; text: string; imageRef?: string }
 ) {
   after(async () => {
     const { data: item, error: itemError } = await db
@@ -197,11 +200,17 @@ function scheduleResolution(
     }
     await markItemState(db, item.id, "resolving");
     try {
+      // Load image bytes for the T3/T4 tiers (image captures only).
+      let image: { bytes: Buffer; contentType: string } | undefined;
+      if (resolve.imageRef) {
+        const dl = await downloadCaptureImage(db, resolve.imageRef);
+        image = { bytes: Buffer.from(dl.bytes), contentType: dl.contentType };
+      }
       const result = await resolveCapture(
         resolve.payloadType,
         resolve.text,
         whoHint,
-        { onRetry: () => markItemState(db, item.id, "retrying") }
+        { onRetry: () => markItemState(db, item.id, "retrying"), image }
       );
       const updateError = await applyResolutionToItem(db, item.id, result, whoHint);
       if (updateError) {

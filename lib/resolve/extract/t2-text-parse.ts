@@ -35,18 +35,30 @@ const FILLER_LEAD = /^(watch|see|check out|add)\s+/i;
 const FILLER_TRAIL =
   /\s+(this weekend|this week|tonight|sometime|someday|later)\s*$/i;
 
-export function extractT2(capture: NormalizedCapture): Candidate | null {
+export type T2Options = {
+  // Off for OCR-derived text: a screenshot that happens to contain the word
+  // "from" must never fabricate provenance (Law 4). See docs/2.2-image-extraction.md.
+  parseWho?: boolean;
+};
+
+export function extractT2(
+  capture: NormalizedCapture,
+  opts: T2Options = {}
+): Candidate | null {
+  const parseWho = opts.parseWho ?? true;
   const raw = capture.text;
   if (!raw) return null;
   let text = raw.trim();
   let who: string | undefined;
 
-  for (const re of WHO_PATTERNS) {
-    const m = text.match(re);
-    if (m && m.index !== undefined) {
-      who = m[1].trim().replace(/[.,]+$/, "");
-      text = text.slice(0, m.index).trim();
-      break;
+  if (parseWho) {
+    for (const re of WHO_PATTERNS) {
+      const m = text.match(re);
+      if (m && m.index !== undefined) {
+        who = m[1].trim().replace(/[.,]+$/, "");
+        text = text.slice(0, m.index).trim();
+        break;
+      }
     }
   }
 

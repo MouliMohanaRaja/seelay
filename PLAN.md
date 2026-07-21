@@ -19,10 +19,13 @@ COMPLETE — walking skeleton done end-to-end: capture API, deterministic waterf
 quick-add all built and verified locally. Stage-1 boundary review recorded in
 ASSUMPTIONS.md (engine assumptions supported; all behavioral assumptions still
 untested by construction — need real dogfooding). Only open Stage-1 item: the 1.1
-Vercel deploy + phone verify (founder step). Step 2.1 done — image ingestion live
-(private bucket, proxy-served thumbnails, honest needs_hint until 2.2 adds OCR).
-Next: Stage 2, step 2.2 — image extraction (tesseract.js OCR T3, LLM-vision T4
-fallback), the real "screenshot → resolved" magic and R1's accuracy sensor.**
+Vercel deploy + phone verify (founder step). Step 2.1 done. Step 2.2
+IMPLEMENTED (T3 tesseract OCR + T4 vendor-neutral vision fallback, wired into
+resolveCapture; end-to-end verified) but its **accuracy gate is NOT met yet — R1 is
+live**: on a poster proxy with T4 unconfigured, OCR scored 4/10. Before Stage-2
+accuracy counts as validated: configure `FALLBACK_LLM_*` for T4, and re-run the R1
+sensor on the founder's 10 real screenshots (not posters). Do NOT start 2.3 or shell
+work until R1 clears. Also still open: 1.1 Vercel deploy + phone verify.**
 Update this block as stages complete.
 
 ## Decision log
@@ -165,6 +168,23 @@ roll to the app; it appears in the receipt correctly resolved.
   OCR alone vs. needed T4). **This is tripwire R1's sensor.** Record both numbers here.
   Fence: no image preprocessing pipeline (deskew/crop models) unless the score demands
   it; T4 stays the cheapest capable model — no model shopping.
+  **Implemented + verified 2026-07-21 (design in [docs/2.2-image-extraction.md]):**
+  T3 (tesseract.js OCR → T2 parse → TMDB) and T4 (vendor-neutral vision fallback,
+  env-configured) built and wired into `resolveCapture`; state machine unchanged.
+  End-to-end through the API confirmed: Barbie poster upload → OCR → `needs_confirm`
+  "Barbie" (tier T3); Dark Knight poster → garbage OCR → `needs_hint` (honest escalation).
+  **Accuracy gate NOT yet met — R1 is live.** The true sensor (founder's 10 real
+  camera-roll screenshots) wasn't available, so the harness ran on a *harder proxy*:
+  10 real movie POSTERS (`npm run test:images -- <dir>`), T4 unconfigured (no LLM key
+  in this env). Result: **4/10** correct — T3 nailed the clean-text posters (Barbie 90%
+  OCR, 3 Idiots → resolved, Inception, Oppenheimer) and produced garbage on stylized
+  poster ART (Dark Knight/Interstellar/RRR/Kantara → needs_hint), which is exactly the
+  case T4 exists for. Per-tier: T3-alone 6/10 produced a candidate (4 correct), 0 T4
+  (unconfigured). Latency: first image ~7.2s (OCR worker init + traineddata), then
+  250 ms–1.4 s. **Two gates remain before Stage-2 accuracy is validated:** (1) configure
+  T4 (`FALLBACK_LLM_*`) so it can rescue OCR-fails cases — the R1 budget corollary says
+  OCR-alone-fails-but-LLM-passes is a PASS; (2) re-run on real *screenshots* (UI text,
+  which OCR reads far better than stylized posters — see Barbie 90%), not posters.
 
 - **2.3 Full hint loop on images.**
   Goal: a failed image resolution recovers gracefully — "needs a hint" → user types one
