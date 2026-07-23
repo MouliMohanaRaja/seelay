@@ -12,7 +12,13 @@ import type { ResolutionResult } from "../lib/resolve/types";
 // the read-only diagnostics resolveCapture already returns.
 //
 // Usage: npm run test:images -- <dir-with-images-and-manifest.tsv> [--max-tier=N]
+//        [--t4-delay-ms=N]
 //   --max-tier=3 runs T3-only (no vision); default runs all tiers (T3+T4).
+//   --t4-delay-ms overrides the pause inserted after each image that made a
+//   T4 call. Images are processed strictly sequentially (concurrency 1);
+//   when the provider is Gemini the default pause is 6000 ms, keeping the
+//   benchmark's T4 rate ≤ ~10 requests/min — under the free-tier RPM cap.
+//   (Benchmark-only pacing: the production resolver stays async per capture.)
 // manifest.tsv rows: "<filename>\t<expected title>\t<year>"
 // Writes <dir>/diagnostics.jsonl (one record per image) + prints a summary.
 
@@ -92,6 +98,13 @@ async function main() {
   }
   const tierArg = process.argv.find((a) => a.startsWith("--max-tier="));
   const maxTier = tierArg ? Number(tierArg.split("=")[1]) : 99;
+  const provider = (process.env.FALLBACK_LLM_PROVIDER ?? "").trim().toLowerCase();
+  const delayArg = process.argv.find((a) => a.startsWith("--t4-delay-ms="));
+  const t4DelayMs = delayArg
+    ? Number(delayArg.split("=")[1])
+    : provider === "gemini" || provider === "google"
+      ? 6000
+      : 0;
   const jsonlPath = join(dir, "diagnostics.jsonl");
   writeFileSync(jsonlPath, ""); // reset
 
@@ -110,7 +123,8 @@ async function main() {
   const configured = fallbackConfigured();
   console.log(`image resolution diagnostics — ${files.length} images`);
   console.log(
-    `tiers: ${maxTier >= 4 ? "T3+T4" : `up to T${maxTier}`} · T4 (Intelligent Fallback) configured: ${configured}\n`
+    `tiers: ${maxTier >= 4 ? "T3+T4" : `up to T${maxTier}`} · T4 (Intelligent Fallback) configured: ${configured}` +
+      ` · sequential (concurrency 1), ${t4DelayMs} ms pause after each T4 call\n`
   );
 
   const records: Diagnostic[] = [];
@@ -192,6 +206,14 @@ async function main() {
               : "no listed failure code (spurious/low-quality match)"
         }`
     );
+
+    // Free-tier pacing: pause after any image that made a T4 call so the
+    // benchmark stays under the provider's RPM cap. Between-image only —
+    // not counted in per-image processingMs, and production is untouched.
+    const isLast = fn === files[files.length - 1];
+    if (rec.t4Attempted && t4DelayMs > 0 && !isLast) {
+      await new Promise((r) => setTimeout(r, t4DelayMs));
+    }
   }
 
   // Summary.
@@ -214,6 +236,9 @@ async function main() {
   );
   console.log(`reason tallies: ${JSON.stringify(reasonCounts)}`);
   console.log(`\nper-image records written to ${jsonlPath}`);
+  // The cached tesseract worker keeps Node alive after main() completes —
+  // exit explicitly so benchmark runs terminate instead of lingering.
+  process.exit(0);
 }
 
 main().catch((e) => {
