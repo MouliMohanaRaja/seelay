@@ -81,14 +81,37 @@ export function selectCandidateLines(ocr: OcrResult, max = 3): string[] {
     }))
     .sort((a, b) => b.score - a.score);
 
+  // Select the same raw top lines as before (dedup on the raw text so the
+  // cleanup below can NOT change which lines are chosen — ranking untouched),
+  // then clean each selected line's query.
   const seen = new Set<string>();
   const out: string[] = [];
   for (const { text } of ranked) {
     const key = text.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(text);
+    const cleaned = cleanCandidateLine(text);
+    if (cleaned.replace(/[^a-z0-9]/gi, "").length >= 2) out.push(cleaned);
     if (out.length >= max) break;
   }
   return out;
+}
+
+// The one deterministic cleanup justified by the 2.2 diagnostics (RC2): a
+// candidate line that IS the title but carries trailing aggregator/trailer
+// chrome ("… | Trailer | Ananthika", "… (film) IMDb Letterboxd JustWatch")
+// produces a query too noisy for TMDB. Keep the title portion by cutting at
+// the first list separator or aggregator marker, and drop parenthetical
+// qualifiers. Deliberately narrow — not a re-tuning of line ranking.
+const CHROME_MARKER =
+  /\b(official\s+)?(trailer|teaser)\b|\b(imdb|letterboxd|justwatch|rotten\s+tomatoes|metacritic|wikipedia|fandom)\b/i;
+
+function cleanCandidateLine(s: string): string {
+  let t = s;
+  const sep = t.search(/\s[|•·]\s/); // "8 Vasantalu | Trailer | …" → "8 Vasantalu"
+  if (sep > 0) t = t.slice(0, sep);
+  const marker = t.search(CHROME_MARKER); // "… (film) IMDb Letterboxd" → "… (film)"
+  if (marker > 0) t = t.slice(0, marker);
+  t = t.replace(/\((?:film|movie|tv series|tv|show|series|\d{4})\)/gi, " ");
+  return t.replace(/\s+/g, " ").trim();
 }

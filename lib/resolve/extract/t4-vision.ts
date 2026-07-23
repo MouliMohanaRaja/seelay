@@ -6,9 +6,10 @@ import type { Candidate } from "../types";
 // is logged and counted (the A11 LLM-free-rate metric / budget line).
 // See docs/2.2-image-extraction.md.
 //
-// Providers implemented: "anthropic" and any OpenAI-compatible endpoint
-// (the default — set FALLBACK_LLM_BASE_URL for OpenRouter/Groq/local/etc).
-// No model shopping (2.2 fence): one env-configured model.
+// Providers implemented: "anthropic", "gemini" (Google AI Studio), and any
+// OpenAI-compatible endpoint (the default — set FALLBACK_LLM_BASE_URL for
+// OpenRouter/Groq/local/etc). No model shopping (2.2 fence): one
+// env-configured model.
 
 type FallbackConfig = {
   provider: string;
@@ -63,7 +64,9 @@ export async function visionExtract(
     parsed =
       cfg.provider === "anthropic"
         ? await callAnthropic(cfg, image, contentType)
-        : await callOpenAICompatible(cfg, image, contentType);
+        : cfg.provider === "gemini" || cfg.provider === "google"
+          ? await callGemini(cfg, image, contentType)
+          : await callOpenAICompatible(cfg, image, contentType);
   } catch (e) {
     console.error("[T4] vision call failed:", e);
     return null;
@@ -133,6 +136,48 @@ async function callAnthropic(
   if (!res.ok) throw new Error(`anthropic ${res.status}`);
   const json = (await res.json()) as { content?: { text?: string }[] };
   return parseJson(json.content?.[0]?.text ?? "");
+}
+
+async function callGemini(
+  cfg: FallbackConfig,
+  image: Buffer,
+  contentType: string
+): Promise<VisionJson | null> {
+  const base = cfg.baseUrl ?? "https://generativelanguage.googleapis.com";
+  const res = await fetch(
+    `${base}/v1beta/models/${cfg.model}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-goog-api-key": cfg.apiKey,
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                inline_data: {
+                  mime_type: contentType,
+                  data: image.toString("base64"),
+                },
+              },
+              { text: PROMPT },
+            ],
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(20000),
+    }
+  );
+  if (!res.ok) throw new Error(`gemini ${res.status}`);
+  const json = (await res.json()) as {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+  };
+  const text = (json.candidates?.[0]?.content?.parts ?? [])
+    .map((p) => p.text ?? "")
+    .join("");
+  return parseJson(text);
 }
 
 async function callOpenAICompatible(

@@ -64,21 +64,24 @@ tripwire fires (PLAN.md R4).
 Deterministic tiers (URL patterns, metadata, text parse, free OCR) plus an LLM
 fallback resolve real captures correctly. The 3-second promise and Law 3 of the trust
 contract both depend on it. *Status: SUPPORTED for text/URL (2026-07-18)* — 15/15 on
-the v1 set (T0 3, T1 +1, T2 +11), all 6 regional titles correct. *Images: CHALLENGED /
-open (2026-07-21)* — T3 OCR nails clean UI/logo text but not stylized poster art
-(4/10 on a poster proxy, T4 unconfigured). The image half of A10 rides on T4 vision +
-real screenshots; it is R1's live tripwire, not yet cleared. Real dogfooding inputs
-still untested.
+the v1 set (T0 3, T1 +1, T2 +11), all 6 regional titles correct. *Images: SUPPORTED
+with T4 (2026-07-22)* — on 12 real founder screenshots, T3-only scored 1/12 (title
+buried in chat/comments/chrome — deterministic isolation fails), but T3+T4 (Gemini
+gemini-3.6-flash) scored **9/12**, clearing R1's ≥7/10 bar. The waterfall is accurate
+enough to be trusted *only with the vision fallback in the loop* for image captures.
+Residuals are structural: multi-title collages, non-Latin-script titles, titles buried
+in comment threads.
 
 **A11 — A majority of real captures resolve with zero LLM calls.**
 The budget constraint's load-bearing bet: deterministic tiers carry most of the volume.
-*Status: SUPPORTED (initial, 2026-07-18)* — 100% LLM-free on the v1 test set; T4 is
-not even implemented yet. Real dogfooding volume (and screenshots at Stage 2) is the
-harder test. Sensor: LLM-free rate at PLAN.md 1.3, 2.2, and the Stage-4 numbers
-page. Challenged if: screenshots dominate real captures AND OCR underperforms on them,
-making the LLM tier the common path. Consequence if dead: revise the budget expectation
-honestly (the fallback still costs pennies at this scale) or invest in better free OCR
-— never silently weaken the accuracy bar (see R1's budget corollary).
+*Status: SPLIT (2026-07-22)* — text/URL captures: SUPPORTED, 100% LLM-free (15/15 v1
+set). Image captures: **CHALLENGED** — on 12 real screenshots, 9/12 needed T4 vision
+(T3 deterministic isolation can't find titles buried in chat/comments/chrome). The
+budget corollary was applied as written: the accuracy bar was never weakened, and the
+expectation is revised honestly — for screenshots, the LLM tier IS the common path.
+Cost reality: T4 fires only on T3 failures, one Gemini flash call per image — still
+pennies at dogfood scale. Whether A11 holds OVERALL depends on the real text-vs-image
+capture mix, measured at the Stage-4 numbers page (LLM-free rate stays first-class).
 
 ---
 

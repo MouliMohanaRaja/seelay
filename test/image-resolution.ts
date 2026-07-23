@@ -11,7 +11,8 @@ import type { ResolutionResult } from "../lib/resolve/types";
 // of why it succeeded or failed. Does not change the pipeline; only reads
 // the read-only diagnostics resolveCapture already returns.
 //
-// Usage: npm run test:images -- <dir-with-images-and-manifest.tsv>
+// Usage: npm run test:images -- <dir-with-images-and-manifest.tsv> [--max-tier=N]
+//   --max-tier=3 runs T3-only (no vision); default runs all tiers (T3+T4).
 // manifest.tsv rows: "<filename>\t<expected title>\t<year>"
 // Writes <dir>/diagnostics.jsonl (one record per image) + prints a summary.
 
@@ -84,11 +85,13 @@ function classify(res: ResolutionResult): Reason[] {
 }
 
 async function main() {
-  const dir = process.argv[2];
+  const dir = process.argv.slice(2).find((a) => !a.startsWith("--"));
   if (!dir) {
-    console.error("usage: tsx test/image-resolution.ts <dir>");
+    console.error("usage: tsx test/image-resolution.ts <dir> [--max-tier=N]");
     process.exit(1);
   }
+  const tierArg = process.argv.find((a) => a.startsWith("--max-tier="));
+  const maxTier = tierArg ? Number(tierArg.split("=")[1]) : 99;
   const jsonlPath = join(dir, "diagnostics.jsonl");
   writeFileSync(jsonlPath, ""); // reset
 
@@ -106,7 +109,9 @@ async function main() {
 
   const configured = fallbackConfigured();
   console.log(`image resolution diagnostics — ${files.length} images`);
-  console.log(`T4 (Intelligent Fallback) configured: ${configured}\n`);
+  console.log(
+    `tiers: ${maxTier >= 4 ? "T3+T4" : `up to T${maxTier}`} · T4 (Intelligent Fallback) configured: ${configured}\n`
+  );
 
   const records: Diagnostic[] = [];
   for (const fn of files) {
@@ -117,6 +122,7 @@ async function main() {
     try {
       res = await resolveCapture("image", "", null, {
         image: { bytes: Buffer.from(bytes), contentType: ctype(fn) },
+        maxTier,
       });
     } catch (e) {
       // A TMDB/network failure (retries exhausted) must not abort the whole

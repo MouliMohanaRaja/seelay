@@ -20,13 +20,13 @@ quick-add all built and verified locally. Stage-1 boundary review recorded in
 ASSUMPTIONS.md (engine assumptions supported; all behavioral assumptions still
 untested by construction — need real dogfooding). Only open Stage-1 item: the 1.1
 Vercel deploy + phone verify (founder step). Step 2.1 done. Step 2.2
-IMPLEMENTED (T3 tesseract OCR + T4 vendor-neutral vision fallback, wired into
-resolveCapture; end-to-end verified) but its **accuracy gate is NOT met yet — R1 is
-live**: on a poster proxy with T4 unconfigured, OCR scored 4/10. Before Stage-2
-accuracy counts as validated: configure `FALLBACK_LLM_*` for T4, and re-run the R1
-sensor on the founder's 10 real screenshots (not posters). Do NOT start 2.3 or shell
-work until R1 clears. Also still open: 1.1 Vercel deploy + phone verify.**
-Update this block as stages complete.
+DONE — **accuracy gate MET, R1 cleared**: T4 configured (Gemini, gemini-3.6-flash) and
+the same-dataset A/B on 12 real founder screenshots went **T3-only 1/12 → T3+T4 9/12**
+(bar ≥7/10, budget corollary applied — extraction was the gap, vision closed it; TMDB
+had 100% of the titles). Residual failures are structural (multi-title collage,
+Tamil-script, title-buried-in-comments). Next: 2.3 — full hint loop on images (mostly
+built; verify from a phone), then gate 2.4 (first-shell decision). Also still open:
+1.1 Vercel deploy + phone verify.** Update this block as stages complete.
 
 ## Decision log
 
@@ -185,6 +185,19 @@ roll to the app; it appears in the receipt correctly resolved.
   T4 (`FALLBACK_LLM_*`) so it can rescue OCR-fails cases — the R1 budget corollary says
   OCR-alone-fails-but-LLM-passes is a PASS; (2) re-run on real *screenshots* (UI text,
   which OCR reads far better than stylized posters — see Barbie 90%), not posters.
+  **GATE MET 2026-07-22 (T4 = Gemini, A/B on 12 real founder screenshots):** T4
+  configured with provider `gemini`, model **gemini-3.6-flash** (2.5-flash is sunset
+  for new users; 3.6-flash is the current stable flash — verified against the live
+  models API). Same-dataset A/B via the harness's `--max-tier` flag: **T3-only 1/12 →
+  T3+T4 9/12** — the ≥7/10 bar cleared via the budget corollary. T4 rescued 8 images
+  (Sita Ramam ×2, Top Gun: Maverick, Hi Nanna, The Sheep Detectives, From,
+  8 Vasantalu, I Want to Eat Your Pancreas) — every RC1/RC2 extraction failure from
+  the engineering analysis (docs/2.2 diagnostics). Residual 3: 39117 multi-title
+  collage (needs_hint — correct behaviour, a product question), 39115 Tamil-script
+  (Gemini guessed wrong; Law 3 held it at needs_confirm), 39116 Arulvaan-in-comments
+  (vision failed — the one miss vs prediction). Latency: T4 adds ~5–10 s per rescued
+  image (avg 9.5 s vs 2.9 s T3-only) — fine, resolution is async (Law 2). The
+  deterministic cleanup was confirmed marginal: T3-only stayed 1/12.
 
 - **2.3 Full hint loop on images.**
   Goal: a failed image resolution recovers gracefully — "needs a hint" → user types one
