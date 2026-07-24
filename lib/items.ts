@@ -62,7 +62,13 @@ export async function applyResolutionToItem(
       confidence: result.score,
       who: result.whoHint ?? fallbackWho,
       resolved_at: new Date().toISOString(),
-      metadata: { tier: result.tierUsed, llm_used: result.llmUsed },
+      metadata: {
+        tier: result.tierUsed,
+        llm_used: result.llmUsed,
+        // Recorded when the vision fallback was rejected with a transient
+        // rate limit (HTTP 429) — explains an otherwise-ordinary needs_hint.
+        ...(result.t4RateLimited ? { t4_rate_limited: true } : {}),
+      },
     })
     .eq("id", itemId);
   return error ? error.message : null;

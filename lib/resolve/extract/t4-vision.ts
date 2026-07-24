@@ -48,12 +48,48 @@ type VisionJson = {
   confidence: number;
 };
 
+// HTTP failure from a provider, carrying the status and (truncated) response
+// body so transient errors like 429 can be recognised and diagnosed.
+class ProviderHttpError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly body: string,
+    provider: string
+  ) {
+    super(`${provider} ${status}`);
+  }
+}
+
+async function httpError(
+  res: Response,
+  provider: string
+): Promise<ProviderHttpError> {
+  let body = "";
+  try {
+    body = (await res.text()).slice(0, 500);
+  } catch {
+    // body unavailable — status alone still identifies the failure
+  }
+  return new ProviderHttpError(res.status, body, provider);
+}
+
+export type VisionOutcome = {
+  candidate: Candidate | null;
+  // True when the provider rate-limited the call (HTTP 429). Never fails the
+  // capture: the pipeline records it and the item settles at needs_hint
+  // exactly like any other unresolved capture. No immediate retry — the
+  // existing hint loop is the recovery path.
+  rateLimited: boolean;
+};
+
+const NO_OUTCOME: VisionOutcome = { candidate: null, rateLimited: false };
+
 export async function visionExtract(
   image: Buffer,
   contentType: string
-): Promise<Candidate | null> {
+): Promise<VisionOutcome> {
   const cfg = readConfig();
-  if (!cfg) return null; // unconfigured → T4 is a no-op (item settles at needs_hint)
+  if (!cfg) return NO_OUTCOME; // unconfigured → T4 is a no-op (item settles at needs_hint)
 
   console.log(
     `[T4] Intelligent Fallback invoked: provider=${cfg.provider} model=${cfg.model}`
@@ -68,17 +104,28 @@ export async function visionExtract(
           ? await callGemini(cfg, image, contentType)
           : await callOpenAICompatible(cfg, image, contentType);
   } catch (e) {
+    if (e instanceof ProviderHttpError && e.status === 429) {
+      // Transient rate limit — expected on free tiers. Log the provider's
+      // response for diagnostics and continue gracefully.
+      console.warn(
+        `[T4] rate-limited by ${cfg.provider} (HTTP 429); capture continues to needs_hint. Provider response: ${e.body || "<empty>"}`
+      );
+      return { candidate: null, rateLimited: true };
+    }
     console.error("[T4] vision call failed:", e);
-    return null;
+    return NO_OUTCOME;
   }
 
-  if (!parsed || !parsed.title) return null;
+  if (!parsed || !parsed.title) return NO_OUTCOME;
   return {
-    tier: "T4",
-    confidence: Math.min(0.7, Math.max(0, Number(parsed.confidence) || 0.5)),
-    title: parsed.title,
-    year: parsed.year ?? undefined,
-    mediaType: parsed.media_type ?? undefined,
+    candidate: {
+      tier: "T4",
+      confidence: Math.min(0.7, Math.max(0, Number(parsed.confidence) || 0.5)),
+      title: parsed.title,
+      year: parsed.year ?? undefined,
+      mediaType: parsed.media_type ?? undefined,
+    },
+    rateLimited: false,
   };
 }
 
@@ -133,7 +180,7 @@ async function callAnthropic(
     }),
     signal: AbortSignal.timeout(20000),
   });
-  if (!res.ok) throw new Error(`anthropic ${res.status}`);
+  if (!res.ok) throw await httpError(res, "anthropic");
   const json = (await res.json()) as { content?: { text?: string }[] };
   return parseJson(json.content?.[0]?.text ?? "");
 }
@@ -170,7 +217,7 @@ async function callGemini(
       signal: AbortSignal.timeout(20000),
     }
   );
-  if (!res.ok) throw new Error(`gemini ${res.status}`);
+  if (!res.ok) throw await httpError(res, "gemini");
   const json = (await res.json()) as {
     candidates?: { content?: { parts?: { text?: string }[] } }[];
   };
@@ -208,7 +255,7 @@ async function callOpenAICompatible(
     }),
     signal: AbortSignal.timeout(20000),
   });
-  if (!res.ok) throw new Error(`openai-compatible ${res.status}`);
+  if (!res.ok) throw await httpError(res, "openai-compatible");
   const json = (await res.json()) as {
     choices?: { message?: { content?: string } }[];
   };

@@ -54,6 +54,7 @@ type Diagnostic = {
   tier: string | null;
   llmInvoked: boolean;
   t4Attempted: boolean;
+  t4RateLimited: boolean;
   processingMs: number;
   reasons: Reason[];
 };
@@ -154,6 +155,7 @@ async function main() {
         tier: null,
         llmInvoked: false,
         t4Attempted: false,
+        t4RateLimited: false,
         processingMs: Date.now() - t0,
         reasons: [],
       };
@@ -184,6 +186,7 @@ async function main() {
       tier: res.tierUsed,
       llmInvoked: res.llmUsed,
       t4Attempted: res.t4Attempted ?? false,
+      t4RateLimited: res.t4RateLimited ?? false,
       processingMs,
       reasons: classify(res),
     };

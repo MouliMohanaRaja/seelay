@@ -73,4 +73,8 @@ export type ResolutionResult = {
   // True when the T4 vision step was reached AND a provider was configured
   // (i.e. a real fallback call was made), regardless of whether it rescued.
   t4Attempted?: boolean;
+  // True when that call was rejected with a transient rate limit (HTTP 429).
+  // The item still settles through the normal state machine (needs_hint);
+  // this flag only records why T4 produced nothing.
+  t4RateLimited?: boolean;
 };

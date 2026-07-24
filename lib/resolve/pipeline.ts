@@ -86,6 +86,7 @@ export async function resolveCapture(
   let ocr: OcrResult | undefined;
   let candidateLines: string[] = []; // diagnostics only
   let t4Attempted = false; // diagnostics only
+  let t4RateLimited = false; // diagnostics only
   if (
     payloadType === "image" &&
     opts.image &&
@@ -115,10 +116,11 @@ export async function resolveCapture(
     // T4 — vision fallback, only if OCR couldn't clear the confirm bar.
     if (best.score < CONFIRM_AT && maxTier >= 4) {
       if (fallbackConfigured()) t4Attempted = true;
-      const vc = await visionExtract(opts.image.bytes, opts.image.contentType);
-      if (vc) {
+      const vision = await visionExtract(opts.image.bytes, opts.image.contentType);
+      if (vision.rateLimited) t4RateLimited = true;
+      if (vision.candidate) {
         const attempt = await evaluate(
-          { ...vc, whoHint: capture.whoHint },
+          { ...vision.candidate, whoHint: capture.whoHint },
           resolver,
           resolveOpts,
           true
@@ -151,6 +153,7 @@ export async function resolveCapture(
       matchQuality: m.matchQuality,
     })),
     t4Attempted,
+    t4RateLimited,
   };
 }
 
